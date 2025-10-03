@@ -1199,17 +1199,9 @@ load_config()
 # 2 - keys to migrate
 fix_config()
 {
-	local replace_keys="${1}" migrated_keys="${2}" fixed_config
-
-	case "${replace_keys}" in
-		*DNSMASQ_INDEXES*|*DNSMASQ_CONF_DIRS*)
-			select_dnsmasq_instances -n || return 1
-			# shellcheck disable=SC2034
-			MIGRATE_DNSMASQ_INDEXES="${DNSMASQ_INDEXES}" MIGRATE_DNSMASQ_CONF_DIRS="${DNSMASQ_CONF_DIRS}" ;;
-	esac
-
-	# recreate config from default while replacing values with values from the existing config
-	fixed_config="$(
+	rebuild_config()
+	{
+		local def_line key curr_val replace_keys="${1}" migrated_keys="${2}"
 		print_def_config -n "${DNSMASQ_INDEXES}" -c "${DNSMASQ_CONF_DIRS}" |
 		while IFS="${_NL_}" read -r def_line
 		do
@@ -1217,26 +1209,38 @@ fix_config()
 				\#*|'') printf '%s\n' "${def_line}"; continue ;;
 				*=*)
 					key=${def_line%%=*}
-					curr_val=
 					if is_included "${key}" "${replace_keys}" " "
 					then
 						printf '%s\n' "${def_line}"
 						continue
-					elif is_included "${key}" "${migrated_keys}" " "
+					fi
+
+					if is_included "${key}" "${migrated_keys}" " "
 					then
 						eval "[ -n \"\${MIGRATE_${key}+set}\" ]" ||
-							{ reg_failure "fix_config: '\$MIGRATE_${key}' not set."; exit 1; }
+							{ reg_failure "fix_config: '\$MIGRATE_${key}' not set."; return 1; }
 						eval "curr_val=\"\${MIGRATE_${key}}\""
-						printf '%s\n' "${key}=\"${curr_val}\""
-						continue
+					else
+						eval "curr_val=\"\${${key}}\""
 					fi
-					eval "curr_val=\"\${${key}}\""
 					printf '%s\n' "${key}=\"${curr_val}\""
 					continue
 			esac
 		done
 		:
-	)" || return 1
+	}
+
+	local replace_keys="${1}" migrated_keys="${2}" fixed_config
+
+	if is_included DNSMASQ_INDEXES "${replace_keys}" " " || is_included DNSMASQ_CONF_DIRS "${replace_keys}" " "
+	then
+		select_dnsmasq_instances -n || return 1
+		# shellcheck disable=SC2034
+		MIGRATE_DNSMASQ_INDEXES="${DNSMASQ_INDEXES}" MIGRATE_DNSMASQ_CONF_DIRS="${DNSMASQ_CONF_DIRS}"
+	fi
+
+	# recreate config from default while replacing values with values from the existing config
+	fixed_config="$(rebuild_config "${replace_keys}" "${migrated_keys}")" || return 1
 
 	local old_config_f="/tmp/adblock-lean_config.old"
 	if ! cp "${ABL_CONFIG_FILE}" "${old_config_f}"
