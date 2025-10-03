@@ -1706,7 +1706,7 @@ clean_dnsmasq_dir()
 # ALL_CONF_DIRS, DNSMASQ_RUNNING_INDEXES, DNSMASQ_INSTANCES_CNT
 # INST_NAME_${index}, IFACES_${index}, CONF_DIRS_${index}, CONF_DIRS_CNT_${index}, RUNNING_${index},
 get_dnsmasq_instances() {
-	# shellcheck disable=SC2317
+	# shellcheck disable=SC2317,SC2329
 	add_conf_dir()
 	{
 		local confdir
@@ -1815,40 +1815,51 @@ get_dnsmasq_instances() {
 }
 
 # Checks that configured dnsmasq instances are running and verifies that their indexes and conf-dirs match the config
+# 1 - (optional) '-q' to quiet
 # return codes:
-# 0 - dnsmasq running
+# 0 - configured dnsmasq instances running
 # 1 - dnsmasq instance is not running or other error
 check_dnsmasq_instances()
 {
-	local instance index dir instance_conf_dirs conf_dir_reg all_abl_conf_dirs='' \
-		inst_ind="dnsmasq instance with index" please_run="Please run 'service adblock-lean select_dnsmasq_instances'."
+	check_failed()
+	{
+		[ -n "${quiet}" ] && return 0
+		reg_failure "${@}"
+	}
+
+	local quiet='' instance index dir instance_conf_dirs conf_dir_reg all_abl_conf_dirs='' \
+		inst_ind="dnsmasq instance with index" \
+		please_run="Please run 'service adblock-lean select_dnsmasq_instances'."
+
+	[ "${1}" = '-q' ] && quiet=1
 
 	get_dnsmasq_instances ||
 	{
 		reg_failure "No running dnsmasq instances found."
 		stop -noexit
-		get_dnsmasq_instances || { reg_failure "dnsmasq service appears to be broken."; return 1; }
+		get_dnsmasq_instances || { check_failed "dnsmasq service appears to be broken."; return 1; }
 	}
 
-	[ -n "${DNSMASQ_INDEXES}" ] || { reg_failure "dnsmasq instances are not set."; return 1; }
+	[ -n "${DNSMASQ_INDEXES}" ] || { check_failed "dnsmasq instances are not set."; return 1; }
 
 	for index in ${DNSMASQ_INDEXES}
 	do
 		eval "[ \"\${RUNNING_${index}}\" = 1 ]" ||
 		{
-			reg_failure "${inst_ind} ${index} is not running."
+			check_failed "${inst_ind} ${index} is not running."
 			stop -noexit
 			get_dnsmasq_instances &&
 			eval "[ \"\${RUNNING_${index}}\" = 1 ]" ||
 			{
-				reg_failure "${inst_ind} ${index} is misconfigured or not running."
+				check_failed "${inst_ind} ${index} is misconfigured or not running."
 				return 1
 			}
 		}
 
 		conf_dir_reg=
 		eval "instance_conf_dirs=\"\${CONF_DIRS_${index}}\""
-		[ -n "${instance_conf_dirs}" ] || { reg_failure "dnsmasq config directory is not set for instance with index ${index}."; return 1; }
+		[ -n "${instance_conf_dirs}" ] ||
+			{ check_failed "dnsmasq config directory is not set for instance with index ${index}."; return 1; }
 		all_abl_conf_dirs="${all_abl_conf_dirs}${instance_conf_dirs}${_NL_}"
 
 		local IFS="${_NL_}"
@@ -1858,7 +1869,7 @@ check_dnsmasq_instances()
 			is_included "${dir}" "${DNSMASQ_CONF_DIRS}" " " && conf_dir_reg=1
 			[ -d "${dir}" ] ||
 			{
-				reg_failure "Conf-dir '${dir}' does not exist. ${inst_ind} ${index} is misconfigured. ${please_run}"
+				check_failed "Conf-dir '${dir}' does not exist. ${inst_ind} ${index} is misconfigured. ${please_run}"
 				return 1
 			}
 		done
@@ -1866,14 +1877,14 @@ check_dnsmasq_instances()
 
 		[ -n "${conf_dir_reg}" ] ||
 		{
-			reg_failure "Conf-dirs for ${inst_ind} ${index} changed. ${please_run}"
+			check_failed "Conf-dirs for ${inst_ind} ${index} changed. ${please_run}"
 			return 1
 		}
 
 		# check if config section exists in /etc/config/dhcp
 		uci show "dhcp.@dnsmasq[${index}]" &>/dev/null ||
 		{
-			reg_failure "${inst_ind} ${index} is running but not registered in /etc/config/dhcp. Use the command 'service dnsmasq restart' and then re-try."
+			check_failed "${inst_ind} ${index} is running but not registered in /etc/config/dhcp. Use the command 'service dnsmasq restart' and then re-try."
 			return 1
 		}
 	done
@@ -1881,7 +1892,7 @@ check_dnsmasq_instances()
 	for dir in ${DNSMASQ_CONF_DIRS}
 	do
 		is_included "${dir}" "${all_abl_conf_dirs}" "${_NL_}" ||
-			{ reg_failure "conf-dir directory '${dir}' is set in config but not used by dnsmasq instances '${DNSMASQ_INDEXES}'."; return 1; }
+			{ check_failed "conf-dir directory '${dir}' is set in config but not used by dnsmasq instances '${DNSMASQ_INDEXES}'."; return 1; }
 	done
 
 	:
