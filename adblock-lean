@@ -1665,7 +1665,8 @@ stop()
 
 	init_command stop || { FAIL_STOP_REQ=''; exit 1; }
 
-	log_msg "Removing any adblock-lean blocklist files in dnsmasq config directories."
+	log_msg "Removing any adblock-lean blocklist files."
+	rm -f "${ABL_RUN_DIR}/prev_blocklist"*
 	clean_dnsmasq_dir || stop_rc=1
 	restart_dnsmasq -nostop &&
 	log_msg -purple "" "Stopped adblock-lean." || stop_rc=1
