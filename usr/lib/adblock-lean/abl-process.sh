@@ -503,7 +503,7 @@ schedule_jobs()
 # 1 - Fatal error (stop processing)
 # 2 - Download failure
 # 3 - Processing failure
-# shellcheck disable=SC2317
+# shellcheck disable=SC2317,SC2329
 process_list_part()
 {
 	finalize_job()
@@ -1055,7 +1055,7 @@ gen_and_process_blocklist()
 
 	log_msg -green "" "Active blocklist check passed with the new blocklist."
 
-	print_msg -green "New blocklist installed with entries count: ${blue}${final_entries_cnt_human}${n_c}."
+	print_msg -green "New blocklist installed with entries count: ${blue}${final_entries_cnt_human}${n_c}"
 	reg_success "New blocklist installed with entries count: ${final_entries_cnt_human}."
 
 	rm -f "${ABL_RUN_DIR}/prev_blocklist"*
@@ -1188,7 +1188,7 @@ try_import_blocklist()
 	log_msg -blue "" "Importing the blocklist file."
 
 	[ -n "${src_file}" ] || { reg_failure "import_blocklist: missing argument."; return 1; }
-	[ -n "${FINAL_BLOCKLIST_FILE}" ] || { reg_failure "import_blocklist: \$FINAL_BLOCKLIST_FILE  is not set."; return 1; }
+	[ -n "${FINAL_BLOCKLIST_FILE}" ] || { reg_failure "import_blocklist: \$FINAL_BLOCKLIST_FILE is not set."; return 1; }
 
 	if [ -f "${src_file}" ]
 	then
