@@ -1489,6 +1489,31 @@ get_config_format()
 	fi
 }
 
+# 1 - <-s|-h> to output as [s]econds since epoch or [h]uman-readable
+get_blocklist_timestamp()
+{
+	local dir file date_fmt_str me=get_blocklist_timestamp
+	case "${1}" in
+		-s) date_fmt_str='+%s' ;;
+		-h) date_fmt_str='+%b %d %Y, %H:%M:%S' ;;
+		*) reg_failure "${me}: unexpected format '${1}'."; return 1
+	esac
+
+	for dir in "${ABL_RUN_DIR}" ${DNSMASQ_CONF_DIRS}
+	do
+		for file in "${dir}/abl-blocklist"*
+		do
+			case "${file}" in ''|*"*") continue; esac
+			date -r "${file}" "${date_fmt_str}" && return 0
+			reg_failure "${me}: Failed to get the timestamp of file '${file}'."
+			return 1
+		done
+	done
+
+	reg_failure "${me}: no blocklist file not found."
+	return 1
+}
+
 
 ### MAIN COMMAND FUNCTIONS
 
@@ -1667,7 +1692,7 @@ reload()
 # 4 - adblock-lean is stopped
 status()
 {
-	local run_state active_entries_cnt=0 active_entries_cnt_human dnsmasq_status=''
+	local run_state active_entries_cnt=0 timestamp active_entries_cnt_human dnsmasq_status=''
 	init_command status || exit 1
 	check_lock
 	case ${?} in
@@ -1707,6 +1732,8 @@ status()
 			int2human active_entries_cnt_human "${active_entries_cnt}"
 			log_msg "The dnsmasq check passed and the presently installed blocklist has entries count: ${active_entries_cnt_human}."
 			log_msg -green "" "adblock-lean is active."
+			timestamp="$(get_blocklist_timestamp -h)" &&
+				print_msg "" "Blocklist updated on: ${blue}${timestamp}${n_c}"
 			gen_stats -noexit
 		else
 			reg_failure "The dnsmasq check failed with existing blocklist file."
