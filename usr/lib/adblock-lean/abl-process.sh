@@ -1324,24 +1324,36 @@ check_active_blocklist()
 
 test_url_domains()
 {
-	local urls list_type list_format d domains='' dom IFS="${DEFAULT_IFS}"
+	local path paths url urls='' list_type list_format d dom IFS="${DEFAULT_IFS}"
 	for list_type in allowlist blocklist blocklist_ipv4
 	do
 		for list_format in raw dnsmasq
 		do
 			d=
-			[ "${list_format}" = dnsmasq ] && d="dnsmasq_"
-			eval "urls=\"\${${d}${list_type}_urls}\""
-			[ -z "${urls}" ] && continue
-			domains="${domains}$(printf %s "${urls}" | tr ' \t' '\n' | ${SED_CMD} -n '/http/{s~^http[s]*[:]*[/]*~~g;s~/.*~~;/^$/d;p;}')${_NL_}"
+			case "${list_format}" in
+				raw) ;;
+				dnsmasq|hosts) d="${list_format}_"
+			esac
+			eval "paths=\"\${${d}${list_type}_urls}\""
+			[ -z "${paths}" ] && continue
+			for path in ${paths}
+			do
+				get_list_url url "${path}" "${list_format}" || return 1
+				urls="${urls}${url}${_NL_}"
+			done
+			urls="${urls/"	"/"${_NL_}"/}"
 		done
 	done
-	[ -z "${domains}" ] && return 0
+	[ -n "${urls}" ] || return 0
 
-	for dom in $(printf %s "${domains}" | ${SORT_CMD} -u)
+	printf '%s\n' "${urls}" |
+	${SED_CMD} -n '/http/{s~^http[s]*[:]*[/]*~~g;s~/.*~~;/^$/d;p;}' |
+	${SORT_CMD} -u |
+	while IFS="${_NL_}" read -r dom || [ -n "${dom}" ]
 	do
-		try_lookup_domain "${dom}" "127.0.0.1" 2 || { reg_failure "Lookup of '${dom}' failed."; return 1; }
-	done
+		[ -n "${dom}" ] || continue
+		try_lookup_domain "${dom}" "127.0.0.1" 2 || { reg_failure "Lookup of '${dom}' failed."; exit 1; }
+	done || return 1
 	:
 }
 
@@ -1351,7 +1363,7 @@ test_url_domains()
 # 4 - (optional) '-n': don't check if result is 127.0.0.1 or 0.0.0.0
 try_lookup_domain()
 {
-	local ns_res ip lookup_ok='' i=0
+	local ns_res ip lookup_ok='' i=0 IFS="${DEFAULT_IFS}"
 
 	while :
 	do
