@@ -571,16 +571,20 @@ print_def_config()
 	# including subdomains of allowed domains
 	whitelist_mode="0" @ 0|1
 
-	# One or more *raw domain* format blocklist/ipv4 blocklist/allowlist URLs and/or short list identifiers separated by spaces
+	# One or more *raw domain* format [blocklist]/[ipv4 blocklist]/[allowlist] URLs and/or short list identifiers separated by spaces
 	# Short list identifiers have the form of [hagezi|oisd]:[list_name]. Examples: hagezi:tif.mini, oisd:big
 	blocklist_urls="${blocklist_urls}" @ string
 	blocklist_ipv4_urls="" @ string
 	allowlist_urls="" @ string
 
-	# One or more *dnsmasq format* domain blocklist/ipv4 blocklist/allowlist URLs separated by spaces
+	# One or more *dnsmasq* format [blocklist]/[ipv4 blocklist]/[allowlist] URLs and/or short list identifiers separated by spaces
 	dnsmasq_blocklist_urls="" @ string
 	dnsmasq_blocklist_ipv4_urls="" @ string
 	dnsmasq_allowlist_urls="" @ string
+
+	# One or more *hosts* format blocklist/allowlist URLS and/or short list identifiers separated by spaces
+	hosts_blocklist_urls="" @ string
+	hosts_allowlist_urls="" @ string
 
 	# Path to optional local *raw domain* allowlist/blocklist files in the form:
 	# site1.com
