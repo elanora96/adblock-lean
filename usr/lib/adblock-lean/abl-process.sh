@@ -227,7 +227,7 @@ set_processing_vars()
 }
 
 # 1 - var name for output
-# 2 - list identifier in the form [hagezi|oisd]:[list_name]
+# 2 - list URL or short identifier
 # 3 - list format (raw|dnsmasq)
 get_list_url()
 {
@@ -236,6 +236,12 @@ get_list_url()
 
 	are_var_names_safe "${out_var}" || return 1
 	eval "${out_var}=''"
+
+	case "${list_id}" in hagezi:*|oisd:*) ;; *)
+		eval "${out_var}=\"${list_id}\""
+		return 0
+	esac
+
 	case "${list_id}" in *:*) ;; *) reg_failure "Invalid list identifier '${list_id}'."; return 1; esac
 	case "${list_id}" in *[A-Z]*) list_id="$(printf '%s' "${list_id}" | tr 'A-Z' 'a-z')"; esac
 	list_author="${list_id%%\:*}" list_name="${list_id#*\:}"
@@ -400,7 +406,9 @@ schedule_jobs()
 		exit "${1}"
 	}
 
-	local list_type list_types="${1}" list_format list_url SCHEDULER_PID
+	local list_type list_format list_url list_path list_paths invalid_urls bad_hagezi_urls d \
+		SCHEDULER_PID \
+		list_types="${1}"
 	get_curr_job_pid SCHEDULER_PID || finalize_scheduler 1
 
 	RUNNING_PIDS=
@@ -416,42 +424,39 @@ schedule_jobs()
 	do
 		for list_format in raw dnsmasq
 		do
-			local list_urls invalid_urls='' bad_hagezi_urls='' d=''
+			invalid_urls='' bad_hagezi_urls='' d=''
 			[ "${list_format}" = dnsmasq ] && d="dnsmasq_"
 
-			eval "list_urls=\"\${${d}${list_type}_urls}\""
-			[ -z "${list_urls}" ] && continue
+			eval "list_paths=\"\${${d}${list_type}_urls}\""
+			[ -z "${list_paths}" ] && continue
 
 			log_msg -blue "" "Starting ${list_format} ${list_type} part(s) download."
 
-			invalid_urls="$(printf %s "${list_urls}" | tr ' ' '\n' | grep -E '^(http[s]*://)*(www\.)*github\.com')" &&
+			invalid_urls="$(printf %s "${list_paths}" | tr ' ' '\n' | grep -E '^(http[s]*://)*(www\.)*github\.com')" &&
 				log_msg -warn "" "Invalid URLs detected:" "${invalid_urls}"
 
 			if [ "${list_format}" = raw ]
 			then
-				bad_hagezi_urls="$(printf %s "${list_urls}" | tr ' ' '\n' | grep '/hagezi/.*/dnsmasq/')" &&
+				bad_hagezi_urls="$(printf %s "${list_paths}" | tr ' ' '\n' | grep '/hagezi/.*/dnsmasq/')" &&
 				log_msg -warn "" "Following Hagezi URLs are in dnsmasq format and should be either changed to raw list URLs" \
 					"or moved to one of the 'dnsmasq_' config entries:" "${bad_hagezi_urls}"
 				case "${list_type}" in blocklist|allowlist)
-					bad_hagezi_urls="$(printf %s "${list_urls}" | tr ' ' '\n' | ${SED_CMD} -n '/^hagezi:/n;/\/hagezi\//{/onlydomains\./d;/^$/d;p;}')"
+					bad_hagezi_urls="$(printf %s "${list_paths}" | tr ' ' '\n' | ${SED_CMD} -n '/^hagezi:/n;/\/hagezi\//{/onlydomains\./d;/^$/d;p;}')"
 					[ -n "${bad_hagezi_urls}" ] && log_msg -warn "" \
 						"Following Hagezi URLs are missing the '-onlydomains' suffix in the filename:" "${bad_hagezi_urls}"
 				esac
 			fi
 
-			for list_url in ${list_urls}
+			for list_path in ${list_paths}
 			do
-				case "${list_url}" in
-					hagezi:*|oisd:*)
-						local short_id="${list_url}"
-						if ! get_list_url list_url "${short_id}" "${list_format}"
-						then
-							[ "${list_part_failed_action}" = "STOP" ] &&
-								{ log_msg "list_part_failed_action is set to 'STOP', exiting."; finalize_scheduler 1; }
-							log_msg -yellow "Skipping list '${short_id}' and continuing."
-							continue
-						fi
-				esac
+				if ! get_list_url list_url "${list_path}" "${list_format}"
+				then
+					[ "${list_part_failed_action}" = "STOP" ] &&
+						{ log_msg "list_part_failed_action is set to 'STOP', exiting."; finalize_scheduler 1; }
+					log_msg -yellow "Skipping list '${list_path}' and continuing."
+					continue
+				fi
+
 				part_line_count=0
 				schedule_job DL "${list_url}" "${list_type}" "${list_format}" || finalize_scheduler 1
 				export "JOB_URL_${!}"="${list_url}"
