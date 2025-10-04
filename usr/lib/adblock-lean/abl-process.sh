@@ -3,7 +3,7 @@
 
 # silence shellcheck warnings
 : "${max_file_part_size_KB:=}" "${whitelist_mode:=}" "${list_part_failed_action:=}" "${test_domains:=}" \
-	"${max_download_retries:=}" "${deduplication:=}" "${max_blocklist_file_size_KB:=}" "${min_good_line_count:=}" "${local_allowlist_path:=}" \
+	"${max_download_retries:=}" "${deduplication:=}" "${max_blocklist_file_size_KB:=}" "${min_good_line_count:=}" \
 	"${intermediate_compression_options:=}" "${final_compression_options:=}" \
 	"${blue:=}" "${green:=}" "${n_c:=}"
 
@@ -15,14 +15,6 @@ PROCESSING_TIMEOUT_S=900 # 15 minutes
 IDLE_TIMEOUT_S=300 # 5 minutes
 
 ABL_TEST_DOMAIN="adblocklean-test123.totallybogus"
-
-OISD_DL_URL="oisd.nl"
-HAGEZI_DL_URL="https://raw.githubusercontent.com/hagezi/dns-blocklists/main"
-OISD_LISTS="big small nsfw nsfw-small"
-HAGEZI_LISTS="anti.piracy blocklist-referral doh doh-vpn-proxy-bypass dyndns fake gambling gambling.medium gambling.mini hoster \
-light multi native.amazon native.apple native.huawei native.lgwebos native.oppo-realme native.roku native.samsung \
-native.tiktok native.tiktok.extended native.vivo native.winoffice native.xiaomi nosafesearch nsfw popupads \
-pro pro.mini pro.plus pro.plus.mini tif tif.medium tif.mini ultimate ultimate.mini urlshortener whitelist-referral"
 
 
 # UTILITY FUNCTIONS
@@ -226,54 +218,6 @@ set_processing_vars()
 		INTERM_COMPR_OPTS PARALLEL_JOBS
 }
 
-# 1 - var name for output
-# 2 - list URL or short identifier
-# 3 - list format (raw|dnsmasq)
-get_list_url()
-{
-	local url_prefix url_suffix raw_suffix dnsmasq_suffix res_url list_author list_name lists='' \
-		out_var="${1}" list_id="${2}" list_format="${3}"
-
-	are_var_names_safe "${out_var}" || return 1
-	eval "${out_var}=''"
-
-	case "${list_id}" in hagezi:*|oisd:*) ;; *)
-		eval "${out_var}=\"${list_id}\""
-		return 0
-	esac
-
-	case "${list_id}" in *:*) ;; *) reg_failure "Invalid list identifier '${list_id}'."; return 1; esac
-	case "${list_id}" in *[A-Z]*) list_id="$(printf '%s' "${list_id}" | tr 'A-Z' 'a-z')"; esac
-	list_author="${list_id%%\:*}" list_name="${list_id#*\:}"
-	case "${list_author}" in
-		hagezi)
-			lists="${HAGEZI_LISTS}"
-			url_prefix="${HAGEZI_DL_URL}"
-			raw_suffix="/wildcard/${list_name}-onlydomains.txt"
-			dnsmasq_suffix="/dnsmasq/${list_name}.txt" ;;
-		oisd)
-			lists="${OISD_LISTS}"
-			url_prefix="https://${list_name}.${OISD_DL_URL}"
-			raw_suffix="/domainswild2"
-			dnsmasq_suffix="/dnsmasq" ;;
-		*)
-			reg_failure "Unknown list '${2}'."; return 1
-	esac
-
-	is_included "${list_name}" "${lists}" " " || { reg_failure "Unknown ${list_author} list '${2}'."; return 1; }
-
-	case "${list_format}" in
-		raw|dnsmasq)
-			eval "url_suffix=\"\${${list_format}_suffix}\""
-			res_url="${url_prefix}${url_suffix}" ;;
-		*)
-			reg_failure "Unexpected list format '${list_format}'."; return 1
-	esac
-
-	: "${raw_suffix}" "${dnsmasq_suffix}"
-	eval "${out_var}=\"${res_url}\""
-}
-
 
 # JOB SCHEDULER FUNCTIONS
 
@@ -363,13 +307,11 @@ get_remaining_time()
 
 # 1 - list origin (DL|LOCAL)
 # 2 - list URL or local path
-# 3 - list type (blocklist|blocklist_ipv4|allowlist)
-# 4 - list format (raw|dnsmasq)
+# 3 - list type (block|ipv4_block|allow)
+# 4 - list format (raw|dnsmasq|hosts)
 # the rest of the args passed as-is to workers
 schedule_job()
 {
-	local list_origin="${1}" list_path="${2}" list_type="${3}" list_format="${4}"
-
 	# wait for job vacancy
 	local remaining_time_s done_pid done_rv
 	get_remaining_time remaining_time_s || return 1
@@ -390,7 +332,7 @@ schedule_job()
 	:
 }
 
-# 1 - list types (allowlist|blocklist|blocklist_ipv4)
+# 1 - list types (allow|block|ipv4_block)
 schedule_jobs()
 {
 	finalize_scheduler()
@@ -406,7 +348,7 @@ schedule_jobs()
 		exit "${1}"
 	}
 
-	local list_type list_format list_url list_path list_paths invalid_urls bad_hagezi_urls d \
+	local list_type list_format list_url list_urls \
 		SCHEDULER_PID \
 		list_types="${1}"
 	get_curr_job_pid SCHEDULER_PID || finalize_scheduler 1
@@ -422,41 +364,15 @@ schedule_jobs()
 
 	for list_type in ${list_types}
 	do
-		for list_format in raw dnsmasq
+		for list_format in ${ALL_LIST_FORMATS}
 		do
-			invalid_urls='' bad_hagezi_urls='' d=''
-			[ "${list_format}" = dnsmasq ] && d="dnsmasq_"
+			eval "list_urls=\"\${${list_format}_${list_type}_urls}\""
+			[ -n "${list_urls}" ] || continue
 
-			eval "list_paths=\"\${${d}${list_type}_urls}\""
-			[ -z "${list_paths}" ] && continue
+			log_msg -blue "" "Starting ${list_format} ${list_type}list part(s) download and processing."
 
-			log_msg -blue "" "Starting ${list_format} ${list_type} part(s) download."
-
-			invalid_urls="$(printf %s "${list_paths}" | tr ' ' '\n' | grep -E '^(http[s]*://)*(www\.)*github\.com')" &&
-				log_msg -warn "" "Invalid URLs detected:" "${invalid_urls}"
-
-			if [ "${list_format}" = raw ]
-			then
-				bad_hagezi_urls="$(printf %s "${list_paths}" | tr ' ' '\n' | grep '/hagezi/.*/dnsmasq/')" &&
-				log_msg -warn "" "Following Hagezi URLs are in dnsmasq format and should be either changed to raw list URLs" \
-					"or moved to one of the 'dnsmasq_' config entries:" "${bad_hagezi_urls}"
-				case "${list_type}" in blocklist|allowlist)
-					bad_hagezi_urls="$(printf %s "${list_paths}" | tr ' ' '\n' | ${SED_CMD} -n '/^hagezi:/n;/\/hagezi\//{/onlydomains\./d;/^$/d;p;}')"
-					[ -n "${bad_hagezi_urls}" ] && log_msg -warn "" \
-						"Following Hagezi URLs are missing the '-onlydomains' suffix in the filename:" "${bad_hagezi_urls}"
-				esac
-			fi
-
-			for list_path in ${list_paths}
+			for list_url in ${list_urls}
 			do
-				if ! get_list_url list_url "${list_path}" "${list_format}"
-				then
-					[ "${list_part_failed_action}" = "STOP" ] &&
-						{ log_msg "list_part_failed_action is set to 'STOP', exiting."; finalize_scheduler 1; }
-					log_msg -yellow "Skipping list '${list_path}' and continuing."
-					continue
-				fi
-
 				part_line_count=0
 				schedule_job DL "${list_url}" "${list_type}" "${list_format}" || finalize_scheduler 1
 				export "JOB_URL_${!}"="${list_url}"
@@ -464,16 +380,16 @@ schedule_jobs()
 		done
 
 		# schedule local jobs
-		if [ "${list_type}" != blocklist_ipv4 ]
+		if [ "${list_type}" != ipv4_block ]
 		then
 			local local_list_path
-			eval "local_list_path=\"\${local_${list_type}_path}\""
+			eval "local_list_path=\"\${local_${list_type}list_path}\""
 			if [ ! -f "${local_list_path}" ]
 			then
-				log_msg "No local ${list_type} identified."
+				log_msg "No local ${list_type}list identified."
 			elif [ ! -s "${local_list_path}" ]
 			then
-				log_msg -warn "" "Local ${list_type} file is empty."
+				log_msg -warn "" "Local ${list_type}list file is empty."
 			else
 				schedule_job LOCAL "${local_list_path}" "${list_type}" raw || finalize_scheduler 1
 				export "JOB_URL_${!}"="${local_list_path}"
@@ -499,7 +415,7 @@ schedule_jobs()
 
 # 1 - list origin (DL|LOCAL)
 # 2 - list URL or local path
-# 3 - list type (blocklist|blocklist_ipv4|allowlist)
+# 3 - list type (block|ipv4_block|allow)
 # 4 - list format (raw|dnsmasq)
 # the rest of the args passed as-is to workers
 #
@@ -563,12 +479,12 @@ process_list_part()
 	esac
 
 	case "${list_type}" in
-		allowlist|blocklist) val_entry_regex='^[[:alnum:]-]+$|^(\*|[[:alnum:]_-]+)([.][[:alnum:]_-]+)+$' ;;
-		blocklist_ipv4) val_entry_regex='^((25[0-5]|(2[0-4]|1[0-9]|[1-9]|)[0-9])\.){3}(25[0-5]|(2[0-4]|1[0-9]|[1-9]|)[0-9])$' ;;
+		allow|block) val_entry_regex='^[[:alnum:]-]+$|^(\*|[[:alnum:]_-]+)([.][[:alnum:]_-]+)+$' ;;
+		ipv4_block) val_entry_regex='^((25[0-5]|(2[0-4]|1[0-9]|[1-9]|)[0-9])\.){3}(25[0-5]|(2[0-4]|1[0-9]|[1-9]|)[0-9])$' ;;
 		*) finalize_job 1 "Invalid list type '${list_type}'"
 	esac
 
-	case ${list_type} in blocklist|blocklist_ipv4)
+	case ${list_type} in block|ipv4_block)
 		[ -n "${USE_COMPRESSION}" ] &&
 		{
 			dest_file="${dest_file}${COMPR_EXT}"
@@ -577,25 +493,27 @@ process_list_part()
 	esac
 
 	case "${list_type}" in
-		blocklist) format_conv_suffix='s~/$~~' ;;
-		blocklist_ipv4) format_conv_prefix="s~^[ \t]*bogus-nxdomain=~~" ;;
-		allowlist) format_conv_suffix='s~/#$~~'
+		block) format_conv_suffix='s~/$~~' ;;
+		ipv4_block) format_conv_prefix="s~^[ \t]*bogus-nxdomain=~~" ;;
+		allow) format_conv_suffix='s~/#$~~'
 	esac
 
-	[ "${list_format}" = dnsmasq ] && format_conv_or_cat=conv_dnsmasq_to_raw
+	case "${list_format}" in
+		dnsmasq|hosts) format_conv_or_cat=conv_${list_format}_to_raw
+	esac
 
 	case "${list_type}" in
-		allowlist|blocklist) case_conv_or_cat="case_conv"
+		allow|block) case_conv_or_cat="case_conv"
 	esac
 
-	eval "min_line_count=\"\${min_${list_type}_part_line_count}\""
+	eval "min_line_count=\"\${min_${list_type}list_part_line_count}\""
 
 	while :
 	do
 		rm -f "${rogue_el_file}" "${list_stats_file}" "${size_exceeded_file}" "${ucl_err_file}"
 
-		print_msg "Processing ${list_format} ${list_type}: ${blue}${list_path}${n_c}"
-		log_msg -noprint "Processing ${list_format} ${list_type}: ${list_path}"
+		print_msg "Processing ${list_format} ${list_type}list: ${blue}${list_path}${n_c}"
+		log_msg -noprint "Processing ${list_format} ${list_type}list: ${list_path}"
 
 		# Download or cat the list
 		${fetch_cmd} "${list_path}" |
@@ -615,18 +533,18 @@ process_list_part()
 		# Convert to lowercase
 		${case_conv_or_cat} |
 
-		if [ "${list_type}" = blocklist ] && [ "${use_allowlist}" = 1 ]
+		if [ "${list_type}" = block ] && [ "${use_allowlist}" = 1 ]
 		then
 			case "${whitelist_mode}" in
 			0)
 				# remove allowlist domains from blocklist
 				${AWK_CMD} 'NR==FNR { if ($0 ~ /^\*\./) { allow_wild[substr($0,3)]; next }; allow[$0]; next }
 					{ n=split($1,arr,"."); addr = arr[n]; for ( i=n-1; i>=1; i-- )
-					{ addr = arr[i] "." addr; if ( (i>1 && addr in allow_wild) || addr in allow ) next } } 1' "${PROCESSED_PARTS_DIR}/allowlist" - ;;
+					{ addr = arr[i] "." addr; if ( (i>1 && addr in allow_wild) || addr in allow ) next } } 1' "${PROCESSED_PARTS_DIR}/allow" - ;;
 			1)
 				# only print subdomains of allowlist domains
 				${AWK_CMD} 'NR==FNR { if ($0 !~ /^\*/) { allow[$0] }; next } { n=split($1,arr,"."); addr = arr[n];
-					for ( i=n-1; i>1; i-- ) { addr = arr[i] "." addr; if ( addr in allow ) { print $1; next } } }' "${PROCESSED_PARTS_DIR}/allowlist" -
+					for ( i=n-1; i>1; i-- ) { addr = arr[i] "." addr; if ( addr in allow ) { print $1; next } } }' "${PROCESSED_PARTS_DIR}/allow" -
 			esac
 		else
 			cat
@@ -655,9 +573,9 @@ process_list_part()
 
 			case "${rogue_element}" in
 				*"${CR_LF}"*)
-					log_msg -warn "${list_type} file from '${list_path}' contains Windows-format (CR LF) newlines." \
+					log_msg -warn "${list_type}list file from '${list_path}' contains Windows-format (CR LF) newlines." \
 						"This file needs to be converted to Unix newline format (LF)." ;;
-				*) log_msg -warn "${rogue_el_print} identified in ${list_type} file from: ${list_path}."
+				*) log_msg -warn "${rogue_el_print} identified in ${list_type}list file from: ${list_path}."
 			esac
 			finalize_job 3
 		fi
@@ -665,8 +583,8 @@ process_list_part()
 		read_str_from_file -v "part_line_count part_size_B _" -f "${list_stats_file}" -a 2 -D "list stats" || finalize_job 1
 		if [ -f "${size_exceeded_file}" ]
 		then
-			reg_failure "Size of ${list_type} part from '${list_path}' reached the maximum value set in config (${max_file_part_size_KB} KB)."
-			log_msg "Consider either increasing this value in the config or removing the corresponding ${list_type} part path or URL from config."
+			reg_failure "Size of ${list_type}list part from '${list_path}' reached the maximum value set in config (${max_file_part_size_KB} KB)."
+			log_msg "Consider either increasing this value in the config or removing the corresponding ${list_type}list part path or URL from config."
 			finalize_job 2
 		fi
 
@@ -676,7 +594,7 @@ process_list_part()
 		then
 			lines_cnt_low=1
 			int2human min_line_count_human "${min_line_count}"
-			reg_failure "Line count in downloaded ${list_type} part from '${list_path}' is ${line_count_human}, which is less than configured minimum: ${min_line_count_human}."
+			reg_failure "Line count in downloaded ${list_type}list part from '${list_path}' is ${line_count_human}, which is less than configured minimum: ${min_line_count_human}."
 		fi
 
 		if [ "${list_origin}" = DL ] && { [ -z "${dl_completed}" ] || [ -n "${lines_cnt_low}" ]; }
@@ -705,7 +623,8 @@ gen_list_parts()
 {
 	local list_type preprocessed_line_count=0 preprocessed_line_count_human
 
-	[ -z "${blocklist_urls}${dnsmasq_blocklist_urls}" ] && log_msg -yellow "" "NOTE: No URLs specified for blocklist download."
+	[ -n "${raw_block_lists}${dnsmasq_block_lists}${hosts_block_lists}" ] ||
+		log_msg -yellow "" "NOTE: No URLs specified for blocklist download."
 
 	# clean up before processing
 	rm -rf "${PROCESSED_PARTS_DIR}" "${SCHEDULE_DIR}"
@@ -719,7 +638,7 @@ gen_list_parts()
 		# allow test domains
 		for d in ${test_domains}
 		do
-			printf '%s\n' "${d}" >> "${PROCESSED_PARTS_DIR}/allowlist"
+			printf '%s\n' "${d}" >> "${PROCESSED_PARTS_DIR}/allow"
 			preprocessed_line_count=$((preprocessed_line_count+1))
 		done
 		use_allowlist=1
@@ -729,17 +648,19 @@ gen_list_parts()
 	print_msg ""
 
 	# Asynchronously download and process parts, allowlist must be processed separately and first
-	for list_types in allowlist "blocklist blocklist_ipv4"
+	for list_types in allow "block ipv4_block"
 	do
 		local schedule_req=''
 		for list_type in ${list_types}
 		do
-			eval "list_urls=\"\${${list_type}_urls}\""
-			if eval "[ -n \"\${${list_type}_urls}\${dnsmasq_${list_type}_urls}\" ]"
-			then
-				schedule_req=1
-			fi
-			if eval "[ -f \"\${local_${list_type}_path}\" ]"
+			for list_format in ${ALL_LIST_FORMATS}
+			do
+				if eval "[ -n \"\${${list_format}_${list_type}_urls}\" ]"
+				then
+					schedule_req=1
+				fi
+			done
+			if eval "[ -f \"\${local_${list_type}list_path}\" ]"
 			then
 				schedule_req=1
 			fi
@@ -756,13 +677,13 @@ gen_list_parts()
 			[ ${sched_rv} = 0 ] || return ${sched_rv}
 		fi
 
-		if [ "${list_types}" = allowlist ]
+		if [ "${list_types}" = allow ]
 		then
 			# consolidate allowlist parts into one file
-			for file in "${PROCESSED_PARTS_DIR}/allowlist-"*
+			for file in "${PROCESSED_PARTS_DIR}/allow-"*
 			do
 				case "${file}" in ''|*"*") continue; esac
-				cat "${file}" >> "${PROCESSED_PARTS_DIR}/allowlist" || { reg_failure "Failed to merge allowlist part."; return 1; }
+				cat "${file}" >> "${PROCESSED_PARTS_DIR}/allow" || { reg_failure "Failed to merge allowlist part."; return 1; }
 				rm -f "${file}"
 			done
 		fi
@@ -781,16 +702,16 @@ gen_list_parts()
 			if [ "${list_line_count}" = 0 ]
 			then
 				case "${list_type}" in
-					blocklist)
+					block)
 						[ "${whitelist_mode}" = 0 ] && return 1
 						log_msg -yellow "Whitelist mode is on - accepting empty blocklist." ;;
-					allowlist)
+					allow)
 						log_msg "Not using any allowlist for blocklist processing."
 				esac
-			elif [ "${list_type}" = blocklist_ipv4 ]
+			elif [ "${list_type}" = ipv4_block ]
 			then
-				use_blocklist_ipv4=1
-			elif [ "${list_type}" = allowlist ]
+				use_ipv4_blocklist=1
+			elif [ "${list_type}" = allow ]
 			then
 				log_msg "Will remove any (sub)domain matches present in the allowlist from the blocklist and append corresponding server entries to the blocklist."
 				use_allowlist=1
@@ -816,14 +737,14 @@ gen_and_process_blocklist()
 
 	# convert to dnsmasq format and pack 4 input lines into 1 output line
 	# intput from STDIN, output to STDOUT
-	# 1 - blocklist|allowlist
+	# 1 - block|allow
 	pack_entries_sed()
 	{
 		case "$1" in
-			blocklist)
+			block)
 				# packs 4 domains in one 'local=/.../' line
 				${SED_CMD} "/^$/d;s~^.*$~local=/&/~;\$!{n;a /${_NL_}};\$!{n;a /${_NL_}};\$!{n; a /${_NL_}};a @" ;;
-			allowlist)
+			allow)
 				# packs 4 domains in one 'server=/.../#'' line
 				{ cat; printf '\n'; } | ${SED_CMD} '/^$/d;$!N;$!N;$!N;s~\n~/~g;s~^~server=/~;s~/*$~/#@~' ;;
 			*) printf ''; return 1
@@ -832,13 +753,13 @@ gen_and_process_blocklist()
 
 	# convert to dnsmasq format and pack input lines into 1024 characters-long lines
 	# intput from STDIN, output to STDOUT
-	# 1 - blocklist|allowlist
+	# 1 - block|allow
 	pack_entries_awk()
 	{
 		local entry_type len_lim=1024 allow_char=''
 		case "$1" in
-			blocklist) entry_type=local ;;
-			allowlist) entry_type=server allow_char="#" ;;
+			block) entry_type=local ;;
+			allow) entry_type=server allow_char="#" ;;
 		esac
 
 		len_lim=$((len_lim-${#entry_type}-${#allow_char}-2))
@@ -856,13 +777,13 @@ gen_and_process_blocklist()
 			END {print a "\n"}'
 	}
 
-	# 1 - list type (blocklist|blocklist_ipv4)
+	# 1 - list type (block|ipv4_block)
 	# 2 - <.gz|.zst|>
 	# 3 - decompression command or 'cat'
 	print_list_parts()
 	{
 		local find_name="${1}-*${2}" find_cmd="${3}"
-		find "${ABL_TMP_DIR}/list_parts/" -type f -name "${find_name}" -exec ${find_cmd} {} \; -exec rm -f {} \;
+		find "${PROCESSED_PARTS_DIR}/" -type f -name "${find_name}" -exec ${find_cmd} {} \; -exec rm -f {} \;
 	}
 
 	# 1 - var name for output
@@ -943,21 +864,21 @@ gen_and_process_blocklist()
 
 	{
 		# print blocklist parts
-		print_list_parts blocklist "${find_ext}" "${part_extr_or_cat}" |
+		print_list_parts block "${find_ext}" "${part_extr_or_cat}" |
 		# optional deduplication
 		dedup |
 		# count entries
-		tee >(wc -w > "${ABL_TMP_DIR}/blocklist_entries") |
+		tee >(wc -w > "${ABL_TMP_DIR}/block_entries") |
 		# pack entries in 1024 characters long lines
-		convert_entries blocklist
+		convert_entries block
 
 		# print ipv4 blocklist parts
-		if [ -n "${use_blocklist_ipv4}" ]
+		if [ -n "${use_ipv4_blocklist}" ]
 		then
-			print_list_parts blocklist_ipv4 "${find_ext}" "${part_extr_or_cat}" |
+			print_list_parts ipv4_block "${find_ext}" "${part_extr_or_cat}" |
 			# optional deduplication
 			dedup |
-			tee >(wc -w > "${ABL_TMP_DIR}/blocklist_ipv4_entries") |
+			tee >(wc -w > "${ABL_TMP_DIR}/ipv4_block_entries") |
 			# add prefix
 			${SED_CMD} 's/^/bogus-nxdomain=/'
 		fi
@@ -966,11 +887,11 @@ gen_and_process_blocklist()
 		if [ -n "${use_allowlist}" ]
 		then
 			# optional deduplication
-			dedup < "${PROCESSED_PARTS_DIR}/allowlist" |
-			tee >(wc -w > "${ABL_TMP_DIR}/allowlist_entries") |
+			dedup < "${PROCESSED_PARTS_DIR}/allow" |
+			tee >(wc -w > "${ABL_TMP_DIR}/allow_entries") |
 			# pack entries in 1024 characters long lines
-			convert_entries allowlist
-			rm -f "${PROCESSED_PARTS_DIR}/allowlist"
+			convert_entries allow
+			rm -f "${PROCESSED_PARTS_DIR}/allow"
 		fi
 
 		# add the optional whitelist entry
@@ -1023,15 +944,15 @@ gen_and_process_blocklist()
 
 	rm -f "${ABL_TMP_DIR}/dnsmasq_err"
 
-	local blocklist_entries_cnt blocklist_ipv4_entries_cnt allowlist_entries_cnt final_list_size_B \
+	local block_entries_cnt ipv4_block_entries_cnt allow_entries_cnt final_list_size_B \
 		final_entries_cnt final_entries_cnt_human min_good_line_count_human
 
-	for list_type in blocklist blocklist_ipv4 allowlist
+	for list_type in block ipv4_block allow
 	do
 		read_list_stats "${list_type}_entries_cnt" "${ABL_TMP_DIR}/${list_type}_entries"
 	done
 
-	final_entries_cnt=$(( blocklist_entries_cnt + blocklist_ipv4_entries_cnt + allowlist_entries_cnt ))
+	final_entries_cnt=$(( block_entries_cnt + ipv4_block_entries_cnt + allow_entries_cnt ))
 	int2human final_entries_cnt_human "${final_entries_cnt}"
 
 	read_list_stats final_list_size_B "${ABL_TMP_DIR}/final_list_bytes"
@@ -1324,24 +1245,14 @@ check_active_blocklist()
 
 test_url_domains()
 {
-	local path paths url urls='' list_type list_format d dom IFS="${DEFAULT_IFS}"
-	for list_type in allowlist blocklist blocklist_ipv4
+	local url urls all_urls='' list_type list_format dom IFS="${DEFAULT_IFS}"
+	for list_type in block ipv4_block allow
 	do
-		for list_format in raw dnsmasq
+		for list_format in ${ALL_LIST_FORMATS}
 		do
-			d=
-			case "${list_format}" in
-				raw) ;;
-				dnsmasq|hosts) d="${list_format}_"
-			esac
-			eval "paths=\"\${${d}${list_type}_urls}\""
-			[ -z "${paths}" ] && continue
-			for path in ${paths}
-			do
-				get_list_url url "${path}" "${list_format}" || return 1
-				urls="${urls}${url}${_NL_}"
-			done
-			urls="${urls/"	"/"${_NL_}"/}"
+			eval "urls=\"\${${list_format}_${list_type}_urls}\""
+			[ -z "${urls}" ] && continue
+			all_urls="${all_urls}${url}${_NL_}"
 		done
 	done
 	[ -n "${urls}" ] || return 0
@@ -1387,20 +1298,9 @@ try_lookup_domain()
 
 get_active_entries_cnt()
 {
-	local cnt entry_type list_prefix list_prefixes=
+	local cnt
 
-	# 'blocklist_ipv4' prefix doesn't need to be added for counting
-	for entry_type in blocklist allowlist
-	do
-		eval "[ ! \"\${${entry_type}_urls}\" ] && [ ! -s \"\${local_${entry_type}_path}\" ]" && continue
-		case ${entry_type} in
-			blocklist) list_prefix=local ;;
-			allowlist) list_prefix=server
-		esac
-		add2list list_prefixes "${list_prefix}" "|"
-	done
-	[ "${whitelist_mode}" = 1 ] && [ -n "${test_domains}" ] && add2list list_prefixes "server" "|"
-
+	# ipv4_block prefix doesn't need to be added for counting
 	cnt="$(
 		if [ -n "${COMPR_EXT}" ] && [ -f "${SHARED_BLOCKLIST_PATH}${COMPR_EXT}" ]
 		then
@@ -1412,7 +1312,7 @@ get_active_entries_cnt()
 			rm -f "${SHARED_BLOCKLIST_PATH:-?}"*
 			printf ''
 		fi |
-		${SED_CMD} -E "s~^(${list_prefixes})=/~~;/${ABL_TEST_DOMAIN}/d;s~/#{0,1}$~~" | tr '/' '\n' | wc -w
+		${SED_CMD} -E "s~^(server|local)=/~~;/${ABL_TEST_DOMAIN}/d;s~/#{0,1}$~~" | tr '/' '\n' | wc -w
 	)"
 
 	: "${cnt:=0}"
