@@ -3,7 +3,7 @@
 
 # silence shellcheck warnings
 : "${blue:=}" "${purple:=}" "${green:=}" "${red:=}" "${yellow:=}" "${n_c:=}"
-: "${blocklist_urls:=}" "${test_domains:=}" "${whitelist_mode:=}" "${compression_util:=}"
+: "${raw_block_lists:=}" "${test_domains:=}" "${whitelist_mode:=}" "${compression_util:=}"
 : "${luci_cron_job_creation_failed}" "${luci_pkgs_install_failed}" "${luci_tarball_url}"
 : "${DNSMASQ_CONF_DIRS}"
 
@@ -381,36 +381,36 @@ do_setup()
 mk_preset_arrays()
 {
 	# quasi-arrays for presets
-	# urls_cnt - urls count, cnt - target elements count, mem - memory in MB
-	mini_urls="hagezi:pro.mini" \
-		mini_urls_cnt=1 mini_cnt=85000 mini_mem=64
-	small_urls="hagezi:pro" \
-		small_urls_cnt=1 small_cnt=250000 small_mem=128
-	medium_urls="hagezi:pro hagezi:tif.mini" \
-		medium_urls_cnt=2 medium_cnt=350000 medium_mem=256
-	large_urls="hagezi:pro hagezi:tif" \
-		large_urls_cnt=2 large_cnt=1200000 large_mem=512
-	large_relaxed_urls="hagezi:pro hagezi:tif" \
-		large_relaxed_urls_cnt=2 large_relaxed_cnt=1200000 large_relaxed_mem=1024 large_relaxed_coeff=2
+	# lists_cnt - urls count, cnt - target elements count, mem - memory in MB
+	mini_lists="hagezi:pro.mini" \
+		mini_lists_cnt=1 mini_cnt=85000 mini_mem=64
+	small_lists="hagezi:pro" \
+		small_lists_cnt=1 small_cnt=250000 small_mem=128
+	medium_lists="hagezi:pro hagezi:tif.mini" \
+		medium_lists_cnt=2 medium_cnt=350000 medium_mem=256
+	large_lists="hagezi:pro hagezi:tif" \
+		large_lists_cnt=2 large_cnt=1200000 large_mem=512
+	large_relaxed_lists="hagezi:pro hagezi:tif" \
+		large_relaxed_lists_cnt=2 large_relaxed_cnt=1200000 large_relaxed_mem=1024 large_relaxed_coeff=2
 }
 
-# sets $blocklist_urls, $min_good_line_count, $max_blocklist_file_size_KB, $max_file_part_size_KB
+# sets $raw_block_lists, $min_good_line_count, $max_blocklist_file_size_KB, $max_file_part_size_KB
 # requires preset vars to be set
 # 1 - mini|small|medium|large|large_relaxed
 # 2 - (optional) '-d' to print the description
 # 2 - (optional) '-n' to print nothing (only assign values to vars)
 set_preset_vars()
 {
-	local val field mem tgt_entries_cnt tgt_entries_cnt_human lim_coeff urls_cnt
+	local val field mem tgt_entries_cnt tgt_entries_cnt_human lim_coeff lists_cnt
 
 	eval "mem=\"\${${1}_mem}\"
-		urls_cnt=\"\${${1}_urls_cnt}\"
+		lists_cnt=\"\${${1}_lists_cnt}\"
 		tgt_entries_cnt=\"\${${1}_cnt}\"
 		lim_coeff=\"\${${1}_coeff}\"
-		blocklist_urls=\"\${${1}_urls}\""
+		raw_block_lists=\"\${${1}_lists}\""
 	: "${lim_coeff:=1}" "${mem:=???}"
 
-	do_calculate_limits -n "${tgt_entries_cnt}" "${urls_cnt}" "${lim_coeff}" || return 1
+	do_calculate_limits -n "${tgt_entries_cnt}" "${lists_cnt}" "${lim_coeff}" || return 1
 
 	[ "${2}" = '-d' ] && print_msg "" "${purple}${1}${n_c}: recommended for devices with ${mem} MB of memory."
 
@@ -418,7 +418,7 @@ set_preset_vars()
 	then
 		int2human tgt_entries_cnt_human "${tgt_entries_cnt}"
 		print_msg "${blue}Elements count:${n_c} ~${tgt_entries_cnt_human}"
-		for field in blocklist_urls max_file_part_size_KB max_blocklist_file_size_KB min_good_line_count
+		for field in raw_block_lists max_file_part_size_KB max_blocklist_file_size_KB min_good_line_count
 		do
 			eval "val=\"\${${field}}\""
 			print_msg "${blue}${field}${n_c}=\"${val}\""
@@ -449,11 +449,11 @@ do_calculate_limits()
 		:
 	}
 
-	local urls_cnt val field tgt_entries_cnt tgt_entries_cnt_human lim_coeff final_entry_size_B source_entry_size_B noprint=''
+	local lists_cnt val field tgt_entries_cnt tgt_entries_cnt_human lim_coeff final_entry_size_B source_entry_size_B noprint=''
 
 	[ "${1}" = '-n' ] && { noprint=1; shift; }
 
-	local tgt_entries_cnt="${1}" urls_cnt="${2}" lim_coeff="${3:-1}"
+	local tgt_entries_cnt="${1}" lists_cnt="${2}" lim_coeff="${3:-1}"
 
 	if [ -z "${noprint}" ]
 	then
@@ -475,9 +475,9 @@ do_calculate_limits()
 		while :
 		do
 			print_msg "How many URLs are used?"
-			read -r urls_cnt
-			case "${urls_cnt}" in ''|*[!0-9]*)
-				print_msg "Invalid input '${urls_cnt}'. Please enter a number."
+			read -r lists_cnt
+			case "${lists_cnt}" in ''|*[!0-9]*)
+				print_msg "Invalid input '${lists_cnt}'. Please enter a number."
 				continue
 			esac
 			break
@@ -487,13 +487,13 @@ do_calculate_limits()
 			reg_failure "calculate_limits: Invalid entries count '${tgt_entries_cnt}'."; return 1 ;;
 		esac
 
-		case "${urls_cnt}" in ''|*[!0-9]*)
-			reg_failure "calculate_limits: Invalid URLs count '${urls_cnt}'."
+		case "${lists_cnt}" in ''|*[!0-9]*)
+			reg_failure "calculate_limits: Invalid URLs count '${lists_cnt}'."
 			return 1
 		esac
 	fi
 
-	[ "${urls_cnt}" -eq 0 ] && { reg_failure "calculate_limits: Invalid URLs count '${urls_cnt}'."; return 1; }
+	[ "${lists_cnt}" -eq 0 ] && { reg_failure "calculate_limits: Invalid URLs count '${lists_cnt}'."; return 1; }
 
 
 	# Default values calculation:
@@ -510,7 +510,7 @@ do_calculate_limits()
 	max_blocklist_file_size_KB=$(( (tgt_entries_cnt*final_entry_size_B*lim_coeff*125)/(1024*100) + 1 ))
 	reasonable_round max_blocklist_file_size_KB || return 1
 
-	if [ "${urls_cnt}" -eq 1 ]
+	if [ "${lists_cnt}" -eq 1 ]
 	then
 		max_file_part_size_KB=${max_blocklist_file_size_KB}
 	else
@@ -573,18 +573,18 @@ print_def_config()
 
 	# One or more *raw domain* format [blocklist]/[ipv4 blocklist]/[allowlist] URLs and/or short list identifiers separated by spaces
 	# Short list identifiers have the form of [hagezi|oisd]:[list_name]. Examples: hagezi:tif.mini, oisd:big
-	blocklist_urls="${blocklist_urls}" @ string
-	blocklist_ipv4_urls="" @ string
-	allowlist_urls="" @ string
+	raw_block_lists="${raw_block_lists}" @ string
+	raw_allow_lists="" @ string
+	raw_ipv4_block_lists="" @ string
 
 	# One or more *dnsmasq* format [blocklist]/[ipv4 blocklist]/[allowlist] URLs and/or short list identifiers separated by spaces
-	dnsmasq_blocklist_urls="" @ string
-	dnsmasq_blocklist_ipv4_urls="" @ string
-	dnsmasq_allowlist_urls="" @ string
+	dnsmasq_block_lists="" @ string
+	dnsmasq_ipv4_block_lists="" @ string
+	dnsmasq_allow_lists="" @ string
 
-	# One or more *hosts* format blocklist/allowlist URLS and/or short list identifiers separated by spaces
-	hosts_blocklist_urls="" @ string
-	hosts_allowlist_urls="" @ string
+	# One or more *hosts* format blocklist/allowlist URLs and/or short list identifiers separated by spaces
+	hosts_block_lists="" @ string
+	hosts_allow_lists="" @ string
 
 	# Path to optional local *raw domain* allowlist/blocklist files in the form:
 	# site1.com
