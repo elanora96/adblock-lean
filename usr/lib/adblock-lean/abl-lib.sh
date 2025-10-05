@@ -1,5 +1,5 @@
 #!/bin/sh
-# shellcheck disable=SC3043,SC3003,SC3001,SC3020,SC3044,SC2016,SC3057,SC3019,SC2019
+# shellcheck disable=SC3043,SC3003,SC3001,SC3020,SC3044,SC2016,SC3057,SC3019,SC2018,SC2019
 
 # silence shellcheck warnings
 : "${blue:=}" "${purple:=}" "${green:=}" "${red:=}" "${yellow:=}" "${n_c:=}"
@@ -15,12 +15,16 @@ ALL_PRESETS="mini small medium large large_relaxed"
 ALL_LIST_FORMATS="raw dnsmasq hosts"
 
 OISD_DL_URL="oisd.nl"
-HAGEZI_DL_URL="https://raw.githubusercontent.com/hagezi/dns-blocklists/main"
 OISD_LISTS="big small nsfw nsfw-small"
+
+HAGEZI_DL_URL="https://raw.githubusercontent.com/hagezi/dns-blocklists/main"
 HAGEZI_LISTS="anti.piracy blocklist-referral doh doh-vpn-proxy-bypass dyndns fake gambling gambling.medium gambling.mini hoster \
 light multi native.amazon native.apple native.huawei native.lgwebos native.oppo-realme native.roku native.samsung \
 native.tiktok native.tiktok.extended native.vivo native.winoffice native.xiaomi nosafesearch nsfw popupads \
 pro pro.mini pro.plus pro.plus.mini tif tif.medium tif.mini ultimate ultimate.mini urlshortener whitelist-referral"
+
+STEVENBLACK_DL_URL="https://raw.githubusercontent.com/StevenBlack/hosts/master"
+STEVENBLACK_LISTS="base fakenews gambling porn social"
 
 
 ### UTILITY FUNCTIONS
@@ -797,6 +801,7 @@ get_list_url()
 		return 0
 	esac
 
+	case "${list_format}" in raw|dnsmasq|hosts) ;; *) reg_failure "Unexpected list format '${list_format}'."; return 1; esac
 	case "${list_id}" in *:*) ;; *) reg_failure "Invalid list identifier '${list_id}'."; return 1; esac
 	case "${list_id}" in *[A-Z]*) list_id="$(printf '%s' "${list_id}" | tr 'A-Z' 'a-z')"; esac
 	list_author="${list_id%%\:*}" list_name="${list_id#*\:}"
@@ -813,22 +818,20 @@ get_list_url()
 			dnsmasq_suffix="/dnsmasq" ;;
 		stevenblack)
 			lists="${STEVENBLACK_LISTS}"
-			url_prefix=""
-			hosts_suffix="" ;;
+			url_prefix="${STEVENBLACK_DL_URL}"
+			case "${list_name}" in
+				base) hosts_suffix="/hosts" ;;
+				*) hosts_suffix="/alternates/${list_name}-only/hosts"
+			esac ;;
 		*)
 			reg_failure "Unknown list '${2}'."; return 1
 	esac
 
 	is_included "${list_name}" "${lists}" " " || { reg_failure "Unknown ${list_author} list '${2}'."; return 1; }
 
-	case "${list_format}" in
-		raw|dnsmasq|hosts)
-			eval "url_suffix=\"\${${list_format}_suffix}\""
-			res_url="${url_prefix}${url_suffix}"
-			[ -n "${res_url}" ] || { reg_failure "Failed to construct URL for list identifier '${list_id}'."; return 1; } ;;
-		*)
-			reg_failure "Unexpected list format '${list_format}'."; return 1
-	esac
+	eval "url_suffix=\"\${${list_format}_suffix}\""
+	res_url="${url_prefix}${url_suffix}"
+	[ -n "${res_url}" ] || { reg_failure "Failed to construct URL for list identifier '${list_id}'."; return 1; }
 
 	: "${raw_suffix}" "${dnsmasq_suffix}" "${hosts_suffix}"
 	eval "${out_var}=\"${res_url}\""
