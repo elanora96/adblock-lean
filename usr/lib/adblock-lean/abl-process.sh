@@ -447,7 +447,24 @@ process_list_part()
 
 	dl_list() { uclient-fetch "${1}" -O- --timeout=3 2> "${ucl_err_file}"; }
 
-	conv_dnsmasq_to_raw() { ${SED_CMD} -E "${format_conv_prefix};${format_conv_suffix}" | tr '/' '\n'; }
+	conv_dnsmasq_to_raw()
+	{
+		local conv_prefix='s~^[ \t]*(local|server|address)=/~~' conv_suffix=''
+		case "${1}" in
+			block) conv_suffix='s~/$~~' ;;
+			ipv4_block) conv_prefix="s~^[ \t]*bogus-nxdomain=~~" ;;
+			allow) conv_suffix='s~/#$~~'
+		esac
+		${SED_CMD} -E "${conv_prefix};${conv_suffix}" | tr '/' '\n'
+	}
+
+	conv_hosts_to_raw()
+	{
+		${SED_CMD} -nE '
+			/^\s*(127.0.0.1|0.0.0.0|::1|::)\s+(0[.]0[.]0[.]0|(ip6-){0,1}(loopback|local(host([.]localdomain){0,1}){0,1}))\s*$/d;
+			s/^\s*(127.0.0.1|0.0.0.0|::1|::)\s+//p
+		'
+	}
 
 	case_conv() { tr 'A-Z' 'a-z'; }
 
@@ -469,7 +486,7 @@ process_list_part()
 		part_line_count='' line_count_human min_line_count='' min_line_count_human \
 		part_size_B='' retry=1 \
 		part_compr_or_cat="cat" fetch_cmd \
-		format_conv_or_cat="cat" format_conv_prefix="s~^[ \t]*(local|server|address)=/~~" format_conv_suffix='' \
+		format_conv_or_cat="cat" \
 		case_conv_or_cat="cat"
 
 	case "${list_origin}" in
@@ -492,14 +509,8 @@ process_list_part()
 		}
 	esac
 
-	case "${list_type}" in
-		block) format_conv_suffix='s~/$~~' ;;
-		ipv4_block) format_conv_prefix="s~^[ \t]*bogus-nxdomain=~~" ;;
-		allow) format_conv_suffix='s~/#$~~'
-	esac
-
 	case "${list_format}" in
-		dnsmasq|hosts) format_conv_or_cat=conv_${list_format}_to_raw
+		dnsmasq|hosts) format_conv_or_cat="conv_${list_format}_to_raw ${list_type}"
 	esac
 
 	case "${list_type}" in
