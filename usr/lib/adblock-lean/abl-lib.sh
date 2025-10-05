@@ -790,20 +790,24 @@ get_def_preset()
 get_list_url()
 {
 	local url_prefix='' url_suffix='' raw_suffix='' dnsmasq_suffix='' hosts_suffix='' \
-		res_url list_author list_name lists='' \
+		res_url list_author list_name lists='' list_id_lc \
 		out_var="${1}" list_id="${2}" list_format="${3}"
 
 	are_var_names_safe "${out_var}" || return 1
-	eval "${out_var}=''"
 
-	case "${list_id}" in hagezi:*|oisd:*) ;; *)
+	case "${list_id}" in
+		*[A-Z]*) list_id_lc="$(printf '%s' "${list_id}" | tr 'A-Z' 'a-z')" ;;
+		*) list_id_lc="${list_id}"
+	esac
+	case "${list_id_lc}" in hagezi:*|oisd:*|stevenblack:*) ;; *)
 		eval "${out_var}=\"${list_id}\""
 		return 0
 	esac
+	list_id="${list_id_lc}"
+
+	eval "${out_var}=''"
 
 	case "${list_format}" in raw|dnsmasq|hosts) ;; *) reg_failure "Unexpected list format '${list_format}'."; return 1; esac
-	case "${list_id}" in *:*) ;; *) reg_failure "Invalid list identifier '${list_id}'."; return 1; esac
-	case "${list_id}" in *[A-Z]*) list_id="$(printf '%s' "${list_id}" | tr 'A-Z' 'a-z')"; esac
 	list_author="${list_id%%\:*}" list_name="${list_id#*\:}"
 	case "${list_author}" in
 		hagezi)
