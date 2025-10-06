@@ -52,15 +52,27 @@ cnt_lines()
 
 get_file_size_human()
 {
-	bytes2human "$(du -b "$1" | ${AWK_CMD} '{print $1}')"
+	local gfs_res
+	bytes2human gfs_res "$(du -b "$1" | ${AWK_CMD} '{print $1}')"
+	printf '%sn' "$gfs_res"
+}
+
+get_pad()
+{
+	local spaces='                              ' \
+		pad_len=$(( ${3} - ${#2} ))
+	[ "$pad_len" -lt 0 ] && pad_len=0
+	eval "${1}=\"${spaces:1:${pad_len}}\""
 }
 
 # converts unsigned integer to [xB|xKiB|xMiB|xGiB|xTiB]
 # if result is not an integer, outputs up to 2 digits after decimal point
-# 1 - int
+# 1 - output var name
+# 2 - int
+# 3 - (optional) '-p' to add padding
 bytes2human()
 {
-	local i="${1:-0}" s=0 d=0 m=1024 fp='' S=''
+	local i="${2:-0}" s=0 d=0 m=1024 fp='' S='' bh_res='' pad=''
 	case "$i" in *[!0-9]*) reg_failure "bytes2human: Invalid unsigned integer '$i'."; return 1; esac
 	for S in B KiB MiB GiB TiB
 	do
@@ -69,11 +81,13 @@ bytes2human()
 	done
 	d=$((d % m * 100 / m))
 	case $d in
-		0) printf "%s %s\n" "$i" "$S"; return ;;
+		0) bh_res="$i $S" ;;
 		[1-9]) fp="02" ;;
 		*0) d=${d%0}; fp="01"
 	esac
-	printf "%s.%${fp}d %s\n" "$i" "$d" "$S"
+	: "${bh_res:="$(printf "%s.%${fp}d %s\n" "$i" "$d" "$S")"}"
+	[ "${3}" = '-p' ] && get_pad pad "${bh_res}" 9
+	eval "${1}=\"${bh_res}${pad}\""
 }
 
 # 1 - var name for output
@@ -220,8 +234,8 @@ do_setup()
 		local recomm_pkgs_regex
 		recomm_pkgs_regex="$(printf %s "$RECOMMENDED_PKGS" | tr ' ' '|')"
 		local pkgs2install='' missing_packages='' missing_utils='' missing_utils_print='' util \
-			installed_pkgs='' util_size_B utils_size_B=0 awk_size_B sort_size_B sed_size_B \
-			free_space_B='' free_space_KB mount_point
+			installed_pkgs='' util_size_B='' util_size_human='' utils_size_B=0 utils_size_human='' awk_size_B sort_size_B sed_size_B \
+			free_space_human='' free_space_B='' free_space_KB mount_point
 
 		: "${awk_size_B:=1048576}" "${sort_size_B:=122880}" "${sed_size_B:=153600}"
 
@@ -254,7 +268,10 @@ do_setup()
 				print_msg "" "For improved performance while processing the lists, it is recommended to install ${missing_utils_print}." \
 					"Corresponding packages are: ${missing_packages}."
 				[ -n "${free_space_B}" ] &&
-					print_msg "" "Available free space at mount point '${mount_point}': ${yellow}$(bytes2human "${free_space_B}")${n_c}." ""
+				{
+					bytes2human free_space_human "${free_space_B}"
+					print_msg "" "Available free space at mount point '${mount_point}': ${yellow}${free_space_human}${n_c}." ""
+				}
 			fi
 
 			for util in ${missing_utils}
@@ -263,7 +280,8 @@ do_setup()
 				if [ -n "${DO_DIALOGS}" ]
 				then
 					eval "util_size_B=\"\${${util}_size_B}\""
-					print_msg "Would you like to install ${blue}GNU ${util}${n_c} automatically? Installed size: ${yellow}$(bytes2human "${util_size_B}")${n_c}. (y|n)"
+					bytes2human util_size_human "${util_size_B}"
+					print_msg "Would you like to install ${blue}GNU ${util}${n_c} automatically? Installed size: ${yellow}${util_size_human}${n_c}. (y|n)"
 					pick_opt "y|n" || return 1
 				elif [ -n "${luci_install_packages}" ]
 				then
@@ -284,8 +302,9 @@ do_setup()
 			REPLY=n
 			if [ -n "${DO_DIALOGS}" ]
 			then
+				bytes2human utils_size_human "${utils_size_B}"
 				print_msg "" "Selected packages: ${blue}${pkgs2install% }${n_c}" \
-					"Total installed size: ${yellow}$(bytes2human ${utils_size_B})${n_c}." \
+					"Total installed size: ${yellow}${utils_size_human}${n_c}." \
 					"Proceed with packages installation? (y|n)"
 				pick_opt "y|n"
 			elif [ -n "${luci_install_packages}" ]
@@ -682,7 +701,7 @@ print_def_config()
 # generates config
 do_gen_config()
 {
-	local cnt totalmem preset
+	local cnt totalmem totalmem_human preset
 
 	if [ -n "${DO_DIALOGS}" ] && [ -z "${luci_preset}" ]
 	then
@@ -690,7 +709,8 @@ do_gen_config()
 		get_def_preset preset totalmem || print_msg "Skipping automatic preset recommendation."
 		if [ -n "${preset}" ]
 		then
-			print_msg "" "Based on the total usable memory of this device ($(bytes2human $((totalmem*1024)) )), the recommended preset is '${purple}${preset}${n_c}':"
+			bytes2human totalmem_human $((totalmem*1024))
+			print_msg "" "Based on the total usable memory of this device (${totalmem_human}), the recommended preset is '${purple}${preset}${n_c}':"
 			set_preset_vars "${preset}" || return 1
 			print_msg "" "[C]onfirm this preset or [p]ick another preset?"
 			pick_opt "c|p"

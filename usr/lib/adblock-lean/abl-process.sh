@@ -1,5 +1,5 @@
 #!/bin/sh
-# shellcheck disable=SC3043,SC3001,SC2016,SC2015,SC3020,SC2181,SC2019,SC2018,SC3045,SC3003,SC3060
+# shellcheck disable=SC3043,SC3001,SC2016,SC2015,SC3020,SC2181,SC2019,SC2018,SC3045,SC3003,SC3060,SC3057
 
 # silence shellcheck warnings
 : "${max_file_part_size_KB:=}" "${whitelist_mode:=}" "${list_part_failed_action:=}" "${test_domains:=}" \
@@ -433,10 +433,12 @@ process_list_part()
 		[ -n "${2}" ] && reg_failure "process_list_part: ${2}"
 		case "${1}" in
 			0)
-				local list_size_human
-				list_size_human="$(bytes2human "${part_size_B}")"
-				print_msg -green "Successfully processed list: ${blue}${print_id}${n_c} (${line_count_human} lines, ${list_size_human})."
-				log_msg -noprint "Successfully processed list: ${print_id} (${line_count_human} lines, ${list_size_human})." ;;
+				local list_size_human stats_pad suffix_pad
+				bytes2human list_size_human "${part_size_B}" -p
+				get_pad stats_pad "${print_id}" 28
+				get_pad suffix_pad "${line_count_human}" 9
+				print_msg -green "Successfully processed list:  ${blue}${print_id}${n_c} ${stats_pad}[ ${list_size_human} - ${line_count_human} lines${suffix_pad}]"
+				log_msg -noprint "Successfully processed list:  ${print_id} ${stats_pad}[ ${list_size_human} - ${line_count_human} lines${suffix_pad}]" ;;
 			*)
 				rm -f "${dest_file}" "${list_stats_file}"
 				[ "${1}" = 1 ] && handle_fatal "${curr_job_pid}" "${list_path}"
@@ -469,7 +471,7 @@ process_list_part()
 
 	case_conv() { tr 'A-Z' 'a-z'; }
 
-	local list_origin="${1}" print_id="${2}" list_path="${3}" list_type="${4}" list_format="${5}" curr_job_pid
+	local list_origin="${1}" print_id="${2}" list_path="${3}" list_type="${4}" list_format="${5}" curr_job_pid msg pad
 
 	get_curr_job_pid curr_job_pid || finalize_job 1
 
@@ -524,8 +526,11 @@ process_list_part()
 	do
 		rm -f "${rogue_el_file}" "${list_stats_file}" "${size_exceeded_file}" "${ucl_err_file}"
 
-		print_msg "Processing ${list_format} ${list_type}list: ${blue}${print_id}${n_c}"
-		log_msg -noprint "Processing ${list_format} ${list_type}list: ${print_id}"
+		msg="Processing ${list_format} ${list_type}list"
+		get_pad pad "${msg}" 28
+
+		print_msg "Processing ${list_format} ${list_type}list: ${pad}${blue}${print_id}${n_c}"
+		log_msg -noprint "${msg}: ${pad}${print_id}"
 
 		# Download or cat the list
 		${fetch_cmd} "${list_path}" |
@@ -957,7 +962,7 @@ gen_and_process_blocklist()
 	rm -f "${ABL_TMP_DIR}/dnsmasq_err"
 
 	local block_entries_cnt ipv4_block_entries_cnt allow_entries_cnt final_list_size_B \
-		final_entries_cnt final_entries_cnt_human min_good_line_count_human
+		final_entries_cnt final_entries_cnt_human final_list_size_human min_good_line_count_human
 
 	for list_type in block ipv4_block allow
 	do
@@ -968,7 +973,7 @@ gen_and_process_blocklist()
 	int2human final_entries_cnt_human "${final_entries_cnt}"
 
 	read_list_stats final_list_size_B "${ABL_TMP_DIR}/final_list_bytes"
-	final_list_size_human="$(bytes2human "${final_list_size_B}")"
+	bytes2human final_list_size_human "${final_list_size_B}"
 
 	if [ "${final_entries_cnt}" -lt "${min_good_line_count}" ]
 	then
