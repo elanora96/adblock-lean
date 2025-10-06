@@ -674,11 +674,13 @@ gen_list_parts()
 		do
 			for list_format in ${ALL_LIST_FORMATS}
 			do
-				if eval "[ -n \"\${${list_format}_${list_type}_urls}\" ]"
+				if eval "[ -n \"\${${list_format}_${list_type}_indexes}\" ]"
 				then
 					schedule_req=1
+					break
 				fi
 			done
+
 			if eval "[ -f \"\${local_${list_type}list_path}\" ]"
 			then
 				schedule_req=1
