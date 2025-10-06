@@ -1092,7 +1092,7 @@ parse_config()
 					migrated_keys_arr[new_key]
 					migrate_keys=migrate_keys $1 " "
 					migrated_keys=migrated_keys new_key " "
-					migrate_opts=migrate_opts "MIGRATE_" new_key "=" val "\n"
+					migrate_opts=migrate_opts "MIGRATE_" new_key "=\"" val "\"\n"
 					print $0 >> A"/migrate_entries"
 					next
 				}
@@ -1141,7 +1141,7 @@ parse_config()
 				"unexp_keys=\"" unexp_keys "\" " \
 				"dup_keys=\"" dup_keys "\" " \
 				"bad_val_keys=\"" bad_val_keys "\" " \
-				migrate_opts
+				"\n" migrate_opts
 			exit rv
 		}'
 	)" 2> "${parser_error_file}" && [ ! -s "${parser_error_file}" ] ||
