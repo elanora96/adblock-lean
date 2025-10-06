@@ -98,7 +98,7 @@ bytes2human()
 			fi
 	esac
 	: "${bh_res:="$(printf "%s.%${fp}d %s\n" "$i" "$d" "$S")"}"
-	[ -n "${align}" ] && get_pad pad "${bh_res}" 9
+	[ -n "${align}" ] && get_pad pad "${bh_res}" 10
 	eval "${1}=\"${pad}${bh_res}\""
 }
 
