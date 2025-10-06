@@ -1138,7 +1138,7 @@ parse_config()
 	}
 
 	# Parse and Validate list options
-	local list lists list_type list_format list_url invalid_urls bad_hagezi_urls
+	local index list lists list_type list_format list_url invalid_urls bad_hagezi_urls
 	for list_type in block ipv4_block allow
 	do
 		for list_format in ${ALL_LIST_FORMATS}
@@ -1171,10 +1171,14 @@ parse_config()
 				esac
 			fi
 
+			index=1
 			for list in ${lists}
 			do
 				get_list_url list_url "${list}" "${list_format}" || return 1
-				add2list "${list_format}_${list_type}_urls" "${list_url}"
+				add2list "${list_format}_${list_type}_indexes" "${index}"
+				eval "${list_format}_${list_type}_${index}_print_id=\"${list}\""
+				eval "${list_format}_${list_type}_${index}_url=\"${list_url}\""
+				index=$((index+1))
 			done
 		done
 	done
@@ -1912,7 +1916,7 @@ get_dnsmasq_instances() {
 		IFS="${DEFAULT_IFS}"
 
 		# get ifaces for instance
-		ifaces="$(${AWK_CMD} -F= '/^\s*interface=/ {if (!seen[$2]++) {ifaces = ifaces $2 ", "} } END {print ifaces}' "$@")"
+		ifaces="$(${AWK_CMD} -F= '/^\s*interface=/ {if (!seen[$2]++) {ifaces = ifaces $2 ", "} } END {print ifaces}' "${@}")"
 
 		# get conf-dirs for instance
 		conf_dirs="$(
@@ -2025,3 +2029,4 @@ check_dnsmasq_instances()
 	:
 }
 
+:
