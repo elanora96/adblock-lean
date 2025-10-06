@@ -54,7 +54,7 @@ get_file_size_human()
 {
 	local gfs_res
 	bytes2human gfs_res "$(du -b "$1" | ${AWK_CMD} '{print $1}')"
-	printf '%sn' "$gfs_res"
+	printf '%s\n' "$gfs_res"
 }
 
 get_pad()
@@ -72,7 +72,8 @@ get_pad()
 # 3 - (optional) '-p' to add padding
 bytes2human()
 {
-	local i="${2:-0}" s=0 d=0 m=1024 fp='' S='' bh_res='' pad=''
+	local i="${2:-0}" s=0 d=0 m=1024 fp='' S='' bh_res='' pad='' align=''
+	[ "${3}" = '-p' ] && align=1
 	case "$i" in *[!0-9]*) reg_failure "bytes2human: Invalid unsigned integer '$i'."; return 1; esac
 	for S in B KiB MiB GiB TiB
 	do
@@ -81,13 +82,24 @@ bytes2human()
 	done
 	d=$((d % m * 100 / m))
 	case $d in
-		0) bh_res="$i $S" ;;
+		0)
+			if [ -n "${align}" ]
+			then
+				i="${i}.00"
+				[ "${S}" = B ] && S="  B"
+			fi
+			bh_res="$i $S" ;;
 		[1-9]) fp="02" ;;
-		*0) d=${d%0}; fp="01"
+		*0)
+			if [ -n "${align}" ]; then
+				fp="02"
+			else
+				d=${d%0} fp="01"
+			fi
 	esac
 	: "${bh_res:="$(printf "%s.%${fp}d %s\n" "$i" "$d" "$S")"}"
-	[ "${3}" = '-p' ] && get_pad pad "${bh_res}" 9
-	eval "${1}=\"${bh_res}${pad}\""
+	[ -n "${align}" ] && get_pad pad "${bh_res}" 9
+	eval "${1}=\"${pad}${bh_res}\""
 }
 
 # 1 - var name for output

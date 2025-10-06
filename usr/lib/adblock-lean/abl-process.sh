@@ -433,12 +433,14 @@ process_list_part()
 		[ -n "${2}" ] && reg_failure "process_list_part: ${2}"
 		case "${1}" in
 			0)
-				local list_size_human stats_pad suffix_pad
+				local list_size_human stats_pad suffix_pad msg1 msg2
 				bytes2human list_size_human "${part_size_B}" -p
 				get_pad stats_pad "${print_id}" 28
-				get_pad suffix_pad "${line_count_human}" 9
-				print_msg -green "Successfully processed list:  ${blue}${print_id}${n_c} ${stats_pad}[ ${list_size_human} - ${line_count_human} lines${suffix_pad}]"
-				log_msg -noprint "Successfully processed list:  ${print_id} ${stats_pad}[ ${list_size_human} - ${line_count_human} lines${suffix_pad}]" ;;
+				get_pad suffix_pad "${line_count_human}" 8
+				msg1="Successfully processed list:  ${print_id}"
+				msg2="${stats_pad}[ ${list_size_human} - ${suffix_pad}${line_count_human} lines ]"
+				print_msg -green "${msg1}${n_c} ${msg2}"
+				log_msg -noprint "${msg1} ${msg2}" ;;
 			*)
 				rm -f "${dest_file}" "${list_stats_file}"
 				[ "${1}" = 1 ] && handle_fatal "${curr_job_pid}" "${list_path}"
@@ -529,7 +531,7 @@ process_list_part()
 		msg="Processing ${list_format} ${list_type}list"
 		get_pad pad "${msg}" 28
 
-		print_msg "Processing ${list_format} ${list_type}list: ${pad}${blue}${print_id}${n_c}"
+		print_msg "${msg}: ${pad}${blue}${print_id}${n_c}"
 		log_msg -noprint "${msg}: ${pad}${print_id}"
 
 		# Download or cat the list
@@ -983,7 +985,9 @@ gen_and_process_blocklist()
 	fi
 
 	log_msg -green "New blocklist file check passed."
-	log_msg "Final list uncompressed file size: ${final_list_size_human}."
+	local msg="Final list uncompressed file size: "
+	print_msg "${msg}${blue}${final_list_size_human}${n_c}"
+	log_msg -noprint "${msg}${final_list_size_human}"
 
 	import_blocklist "${out_f}" "${FINAL_BLOCKLIST_FILE}" || return 1
 
@@ -1173,7 +1177,11 @@ try_import_blocklist()
 
 	[ -n "${FINAL_COMPRESS}" ] && dest_compressed="compressed "
 
-	log_msg "" "Successfully imported new ${dest_compressed}blocklist file for use by dnsmasq with size: $(get_file_size_human "${FINAL_BLOCKLIST_FILE}")."
+	local final_size msg
+	final_size=$(get_file_size_human "${FINAL_BLOCKLIST_FILE}")
+	msg="Successfully imported new ${dest_compressed}blocklist file for use by dnsmasq with size: "
+	print_msg "${msg}${blue}${final_size}${n_c}"
+	log_msg -noprint "${msg}${final_size}"
 
 	:
 }
