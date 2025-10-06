@@ -327,7 +327,7 @@ schedule_job()
 	RUNNING_JOBS_CNT=$((RUNNING_JOBS_CNT+1))
 	process_list_part "${@}" &
 
-	RUNNING_PIDS="${RUNNING_PIDS}${!} "
+	RUNNING_PIDS="${RUNNING_PIDS} ${!}"
 
 	:
 }
