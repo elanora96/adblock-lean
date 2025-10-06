@@ -1240,7 +1240,7 @@ parse_config()
 		log_msg -yellow "" "${i%%|*} keys in config: '${keys}'."
 		entries="$(cat "${ABL_CONF_STAGING_DIR}/${entry_type}_entries")"
 		print_msg "Corresponding config entries:" "${entries%$'\n'}"
-		add_conf_fix "Remove ${entry_type_print_lc} entries from the config"
+		add_conf_fix "${i##*|}"
 		export "luci_${entry_type}_keys"="${keys}" "luci_${entry_type}_entries"="${entries%$'\n'}"
 	done
 
