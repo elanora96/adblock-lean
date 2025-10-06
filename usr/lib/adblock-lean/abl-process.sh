@@ -348,7 +348,7 @@ schedule_jobs()
 		exit "${1}"
 	}
 
-	local list_type list_format list_url list_urls \
+	local list_type list_format print_id list_url index indexes \
 		SCHEDULER_PID \
 		list_types="${1}"
 	get_curr_job_pid SCHEDULER_PID || finalize_scheduler 1
@@ -366,15 +366,16 @@ schedule_jobs()
 	do
 		for list_format in ${ALL_LIST_FORMATS}
 		do
-			eval "list_urls=\"\${${list_format}_${list_type}_urls}\""
-			[ -n "${list_urls}" ] || continue
+			eval "indexes=\"\${${list_format}_${list_type}_indexes}\""
+			[ -n "${indexes}" ] || continue
 
 			log_msg -blue "" "Starting ${list_format} ${list_type}list part(s) download and processing."
 
-			for list_url in ${list_urls}
+			for index in ${indexes}
 			do
-				part_line_count=0
-				schedule_job DL "${list_url}" "${list_type}" "${list_format}" || finalize_scheduler 1
+				eval "print_id=\"\${${list_format}_${list_type}_${index}_print_id}\""
+				eval "list_url=\"\${${list_format}_${list_type}_${index}_url}\""
+				schedule_job DL "${print_id}" "${list_url}" "${list_type}" "${list_format}" || finalize_scheduler 1
 				export "JOB_URL_${!}"="${list_url}"
 			done
 		done
@@ -391,7 +392,7 @@ schedule_jobs()
 			then
 				log_msg -warn "" "Local ${list_type}list file is empty."
 			else
-				schedule_job LOCAL "${local_list_path}" "${list_type}" raw || finalize_scheduler 1
+				schedule_job LOCAL "${local_list_path}" "${local_list_path}" "${list_type}" raw || finalize_scheduler 1
 				export "JOB_URL_${!}"="${local_list_path}"
 			fi
 		fi
@@ -434,8 +435,8 @@ process_list_part()
 			0)
 				local list_size_human
 				list_size_human="$(bytes2human "${part_size_B}")"
-				print_msg -green "Successfully processed list: ${blue}${list_path}${n_c} (${line_count_human} lines, ${list_size_human})."
-				log_msg -noprint "Successfully processed list: ${list_path} (${line_count_human} lines, ${list_size_human})." ;;
+				print_msg -green "Successfully processed list: ${blue}${print_id}${n_c} (${line_count_human} lines, ${list_size_human})."
+				log_msg -noprint "Successfully processed list: ${print_id} (${line_count_human} lines, ${list_size_human})." ;;
 			*)
 				rm -f "${dest_file}" "${list_stats_file}"
 				[ "${1}" = 1 ] && handle_fatal "${curr_job_pid}" "${list_path}"
@@ -468,7 +469,7 @@ process_list_part()
 
 	case_conv() { tr 'A-Z' 'a-z'; }
 
-	local list_origin="${1}" list_path="${2}" list_type="${3}" list_format="${4}" curr_job_pid
+	local list_origin="${1}" print_id="${2}" list_path="${3}" list_type="${4}" list_format="${5}" curr_job_pid
 
 	get_curr_job_pid curr_job_pid || finalize_job 1
 
@@ -523,8 +524,8 @@ process_list_part()
 	do
 		rm -f "${rogue_el_file}" "${list_stats_file}" "${size_exceeded_file}" "${ucl_err_file}"
 
-		print_msg "Processing ${list_format} ${list_type}list: ${blue}${list_path}${n_c}"
-		log_msg -noprint "Processing ${list_format} ${list_type}list: ${list_path}"
+		print_msg "Processing ${list_format} ${list_type}list: ${blue}${print_id}${n_c}"
+		log_msg -noprint "Processing ${list_format} ${list_type}list: ${print_id}"
 
 		# Download or cat the list
 		${fetch_cmd} "${list_path}" |
@@ -584,9 +585,9 @@ process_list_part()
 
 			case "${rogue_element}" in
 				*"${CR_LF}"*)
-					log_msg -warn "${list_type}list file from '${list_path}' contains Windows-format (CR LF) newlines." \
+					log_msg -warn "${list_type}list part '${print_id}' contains Windows-format (CR LF) newlines." \
 						"This file needs to be converted to Unix newline format (LF)." ;;
-				*) log_msg -warn "${rogue_el_print} identified in ${list_type}list file from: ${list_path}."
+				*) log_msg -warn "${rogue_el_print} identified in ${list_type}list part '${print_id}'."
 			esac
 			finalize_job 3
 		fi
@@ -594,7 +595,7 @@ process_list_part()
 		read_str_from_file -v "part_line_count part_size_B _" -f "${list_stats_file}" -a 2 -D "list stats" || finalize_job 1
 		if [ -f "${size_exceeded_file}" ]
 		then
-			reg_failure "Size of ${list_type}list part from '${list_path}' reached the maximum value set in config (${max_file_part_size_KB} KB)."
+			reg_failure "Size of ${list_type}list part '${print_id}' reached the maximum value set in config (${max_file_part_size_KB} KB)."
 			log_msg "Consider either increasing this value in the config or removing the corresponding ${list_type}list part path or URL from config."
 			finalize_job 2
 		fi
@@ -605,12 +606,12 @@ process_list_part()
 		then
 			lines_cnt_low=1
 			int2human min_line_count_human "${min_line_count}"
-			reg_failure "Line count in downloaded ${list_type}list part from '${list_path}' is ${line_count_human}, which is less than configured minimum: ${min_line_count_human}."
+			reg_failure "Line count in downloaded ${list_type}list part '${print_id}' is ${line_count_human}, which is less than configured minimum: ${min_line_count_human}."
 		fi
 
 		if [ "${list_origin}" = DL ] && { [ -z "${dl_completed}" ] || [ -n "${lines_cnt_low}" ]; }
 		then
-			reg_failure "Failed download attempt for URL '${list_url}'."
+			reg_failure "Failed download attempt for URL '${list_path}'."
 			[ -s "${ucl_err_file}" ] && log_msg "uclient-fetch output: ${_NL_}'$(cat "${ucl_err_file}")'."
 			rm -f "${ucl_err_file}"
 		else
@@ -621,10 +622,10 @@ process_list_part()
 		retry=$((retry + 1))
 		if [ "${retry}" -gt "${max_download_retries}" ]
 		then
-			finalize_job 2 "${max_download_retries} download attempts failed for URL '${list_url}'."
+			finalize_job 2 "${max_download_retries} download attempts failed for URL '${list_path}'."
 		fi
 
-		log_msg -yellow "" "Processing job for URL '${list_url}' is sleeping for 5 seconds after failed download attempt."
+		log_msg -yellow "" "Processing job for URL '${list_path}' is sleeping for 5 seconds after failed download attempt."
 		sleep 5 &
 		wait ${!}
 	done
