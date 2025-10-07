@@ -1512,7 +1512,7 @@ get_blocklist_timestamp()
 		done
 	done
 
-	reg_failure "${me}: no blocklist file not found."
+	reg_failure "${me}: no blocklist file found."
 	return 1
 }
 
