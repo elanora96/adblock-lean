@@ -498,6 +498,12 @@ log_msg()
 	:
 }
 
+# same as log_msg but doesn't send the message to system log
+reg_msg()
+{
+	log_msg -nolog "${@}"
+}
+
 # 1 - msg
 # 2 - err level
 write_log_file()
