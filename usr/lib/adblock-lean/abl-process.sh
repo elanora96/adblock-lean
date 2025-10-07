@@ -362,14 +362,14 @@ schedule_jobs()
 	mkfifo "${SCHED_CB_FIFO}" &&
 	exec 3<>"${SCHED_CB_FIFO}" || { reg_failure "Failed to create FIFO '${SCHED_CB_FIFO}'."; finalize_scheduler 1; }
 
+	print_msg ""
+
 	for list_type in ${list_types}
 	do
 		for list_format in ${ALL_LIST_FORMATS}
 		do
 			eval "indexes=\"\${${list_format}_${list_type}_indexes}\""
 			[ -n "${indexes}" ] || continue
-
-			log_msg -blue "" "Starting ${list_format} ${list_type}list part(s) download and processing."
 
 			for index in ${indexes}
 			do
@@ -664,7 +664,6 @@ gen_list_parts()
 	fi
 
 	reg_action -blue "Downloading and processing blocklist parts (max parallel jobs: ${PARALLEL_JOBS})."
-	print_msg ""
 
 	# Asynchronously download and process parts, allowlist must be processed separately and first
 	for list_types in allow "block ipv4_block"
