@@ -437,10 +437,10 @@ process_list_part()
 				bytes2human list_size_human "${part_size_B}" -p
 				get_pad stats_pad "${print_id}" 28
 				get_pad suffix_pad "${line_count_human}" 8
-				msg1="Successfully processed list:  ${print_id}"
+				msg1="Successfully processed list:  "
 				msg2="${stats_pad}[ ${list_size_human} - ${suffix_pad}${line_count_human} lines ]"
-				print_msg -green "${msg1}${n_c} ${msg2}"
-				log_msg -noprint "${msg1} ${msg2}" ;;
+				print_msg "${msg1}${green}${print_id}${n_c} ${msg2}"
+				log_msg -noprint "${msg1}${print_id} ${msg2}" ;;
 			*)
 				rm -f "${dest_file}" "${list_stats_file}"
 				[ "${1}" = 1 ] && handle_fatal "${curr_job_pid}" "${list_path}"
