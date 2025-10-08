@@ -498,10 +498,12 @@ log_msg()
 	:
 }
 
-# Prints msg to console and to log file, doesn't send to system log
+# Prints msg to console and to log file, doesn't send to system log unless ${ABL_DEBUG_LOG} is set
 reg_msg()
 {
-	log_msg -nolog "${@}"
+	local nolog='-nolog'
+	[ -n "${ABL_DEBUG_LOG}" ] && nolog=''
+	log_msg ${nolog} "${@}"
 }
 
 # 1 - msg
