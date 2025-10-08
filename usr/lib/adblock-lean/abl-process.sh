@@ -1189,8 +1189,8 @@ try_import_blocklist()
 }
 
 # Get nameservers for dnsmasq instance
-# Output via global vars: ${instance}_NS_4, ${instance}_NS_6
-# 1 - instance id
+# Output via global vars: NS_4_${index}, NS_6_${index}
+# 1 - instance index
 get_dnsmasq_instance_ns()
 {
 	local family ip_regex iface line instance_ns instance_ifaces ip ip_tmp \
