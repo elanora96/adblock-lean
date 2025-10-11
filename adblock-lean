@@ -27,7 +27,7 @@ _NL_='
 DEFAULT_IFS="	 ${_NL_}"
 IFS="${DEFAULT_IFS}"
 
-CONFIG_FORMAT=v10
+CONFIG_FORMAT=v11
 
 if [ -z "${MSGS_DEST}" ]
 then
