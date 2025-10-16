@@ -1282,9 +1282,9 @@ test_url_domains()
 			all_urls="${all_urls}${url}${_NL_}"
 		done
 	done
-	[ -n "${urls}" ] || return 0
+	[ -n "${all_urls}" ] || return 0
 
-	printf '%s\n' "${urls}" |
+	printf '%s\n' "${all_urls}" |
 	${SED_CMD} -n '/http/{s~^http[s]*[:]*[/]*~~g;s~/.*~~;/^$/d;p;}' |
 	${SORT_CMD} -u |
 	while IFS="${_NL_}" read -r dom || [ -n "${dom}" ]
