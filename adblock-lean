@@ -1747,7 +1747,7 @@ status()
 				"The dnsmasq check passed and the presently installed blocklist has entries count: ${blue}${active_entries_cnt_human}" \
 				"adblock-lean is active."
 			timestamp="$(get_blocklist_timestamp -h)" &&
-				print_msg "" "Blocklist updated on: ${blue}${timestamp}${n_c}"
+				print_msg "" "Blocklist was updated on: ${blue}${timestamp}${n_c}"
 			gen_stats -noexit
 		else
 			reg_failure "The dnsmasq check failed with existing blocklist file."
