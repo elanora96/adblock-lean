@@ -1752,7 +1752,7 @@ status()
 		else
 			reg_failure "The dnsmasq check failed with existing blocklist file."
 			run_state=1
-			print_msg "Consider a full reset by running: 'service adblock-lean restart'."
+			print_msg "Consider running 'service adblock-lean restart in order to restore adblocking."
 		fi
 	fi
 
