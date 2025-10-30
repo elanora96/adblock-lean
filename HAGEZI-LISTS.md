@@ -30,6 +30,7 @@ pro
 pro.mini
 pro.plus
 pro.plus.mini
+social
 tif
 tif.medium
 tif.mini

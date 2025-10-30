@@ -21,7 +21,7 @@ HAGEZI_DL_URL="https://raw.githubusercontent.com/hagezi/dns-blocklists/main"
 HAGEZI_LISTS="anti.piracy blocklist-referral doh doh-vpn-proxy-bypass dyndns fake gambling gambling.medium gambling.mini hoster \
 light multi native.amazon native.apple native.huawei native.lgwebos native.oppo-realme native.roku native.samsung \
 native.tiktok native.tiktok.extended native.vivo native.winoffice native.xiaomi nosafesearch nsfw popupads \
-pro pro.mini pro.plus pro.plus.mini tif tif.medium tif.mini ultimate ultimate.mini urlshortener whitelist-referral"
+pro pro.mini pro.plus pro.plus.mini social tif tif.medium tif.mini ultimate ultimate.mini urlshortener whitelist-referral"
 
 STEVENBLACK_DL_URL="https://raw.githubusercontent.com/StevenBlack/hosts/master"
 STEVENBLACK_LISTS="base fakenews gambling porn social"
