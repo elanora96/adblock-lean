@@ -6,6 +6,7 @@ If you like adblock-lean and can benefit from it, then please leave a ⭐ (top r
 
 ## Table of contents
 - [Features](#features)
+- [Pre-requisites](#pre-requisites)
 - [Installation on OpenWrt](#installation-on-openWrt)
 - [Usage](#usage)
 - [Basic configuration](#basic-configuration)
@@ -43,6 +44,10 @@ Main features of adblock-lean:
 - automatic check for application updates and **self update** functionality (initiated by the user)
 - **config validation** and optional **automatic config repair** when problems are detected
 - strong emphasis on **performance**, **user-friendliness**, **reliability**, **error checking and reporting**, **code quality and readability**
+
+## Pre-requisites
+
+adblock-lean requires **OpenWrt 23.05** or later, **dnsmasq 2.87** or later (OpenWrt 23.05 includes dnsmasq 2.87).
 
 ## Installation on OpenWrt
 
@@ -177,26 +182,34 @@ cron_schedule="disable"
 
 ## Supported formats
 
-adblock-lean supports two blocklist/allowlist formats: **raw format** and **dnsmasq format**. Raw-format lists have the benefit of smaller file size dowload, improved processing speed and reduced ram usage. Hence built-in presets include lists in the raw format.
+adblock-lean supports three blocklist/allowlist formats: **raw format** (a.k.a. _domains-only_ format), **dnsmasq format** and **hosts format**. Raw-format lists have the benefit of smaller file size dowload, improved processing speed and reduced ram usage. Hence built-in presets include lists in the raw format.
+
+Note about the **hosts-format** lists: adblock-lean does not feed the list as-is to dnsmasq. Instead, adblock-lean converts the source list into raw-domains format. The converted list is then merged with any other lists you may have specified. This reduces the memory footprint and allows to deduplicate the blocked domains across different source formats. The downside is that adblock-lean is only compatible with hosts-format lists which couple domains to block with the `0.0.0.0` IPv4 address (or with `::` for IPv6). A minority of hosts-format lists which couple domains to block with the `127.0.0.1` IPv4 address (or with `::1` for IPv6) are **incompatible** with adblock-lean.
 
 - [Visual example](https://raw.githubusercontent.com/hagezi/dns-blocklists/main/wildcard/light-onlydomains.txt) of **raw-format list**
-- [Visual example](https://raw.githubusercontent.com/hagezi/dns-blocklists/main/dnsmasq/light.txt) of **dnsmasq-formmat list**
+- [Visual example](https://raw.githubusercontent.com/hagezi/dns-blocklists/main/dnsmasq/light.txt) of **dnsmasq-format list**
+- [Visual example](https://raw.githubusercontent.com/StevenBlack/hosts/refs/heads/master/hosts) of **hosts-format list**
 
 ## Adding new lists
 
 The default [Hagezi lists](https://github.com/hagezi/dns-blocklists) are recommended to block as much as possible in respect of: _ads, affiliate, tracking, metrics, telemetry, fake, phishing, malware, scam and other undesirable content_, all while breaking as few websites as possible. oisd lists are supported as well.
 
+adblock-lean supports specifying lists either by the complete **download URL** or (for a selection of lists) by a **shortened list identifier**. Using identifiers is easier, hence this guide covers this method.
+
 ### Adding a new **Hagezi** list
-Hagezi lists can be specified either by the complete download URL or by shortened list identifier. Using identifiers is easier, hence this guide covers this method.
-1. Pick one of Hagezi lists (all list names specified [here](/HAGEZI-LISTS.md), list descriptions [here](https://github.com/hagezi/dns-blocklists)).
+1. Pick one of Hagezi lists (all list names specified [here](/HAGEZI-LISTS.md). List descriptions are [here](https://github.com/hagezi/dns-blocklists)).
 2. Construct a list identifier in the format `hagezi:[list_name]`, for example: `hagezi:popupads`
-3. Add the list identifier to the option for **raw-formatted** blocklist or allowlist URLs in adblock-lean config file (depending on which list you picked) (e.g. a blocklist identifier should be added to the `blocklist_urls` config option)
+3. Add the list identifier to the option for **raw-formatted** blocklist or allowlist URLs in adblock-lean config file (depending on which list you picked) (e.g. a blocklist identifier should be added to the `raw_blocklists` config option)
 
 ### Adding a new **oisd** list
-oisd lists can be specified either by the complete download URL or by shortened list identifier. Using identifiers is easier, hence this guide covers this method.
-1. Pick one of the available oisd lists [here](https://oisd.nl/setup/adblock-lean). Following oisd list names are available: `small`, `big`, `nsfw-small`, `nsfw`.
+1. Pick one of the available oisd lists: `small`, `big`, `nsfw-small`, `nsfw`. List descriptions are [here](https://oisd.nl/setup/adblock-lean).
 2. Construct a list identifier in the format `oisd:[list_name]`, for example: `oisd:big`
-3. Add the list identifier to the option for **raw-formatted** blocklist or allowlist URLs in adblock-lean config file (depending on which list you picked) (e.g. a blocklist identifier should be added to the `blocklist_urls` config option)
+3. Add the list identifier to the option for **raw-formatted** blocklist or allowlist URLs in adblock-lean config file (depending on which list you picked) (e.g. a blocklist identifier should be added to the `raw_block_lists` config option)
+
+### Adding a new **Steven Black** list
+1. Pick one of the available stevenblack lists: `base`, `fakenews`, `gambling`, `porn`, `social`. List descriptions are [here](https://github.com/StevenBlack/hosts). Note that despite Steven Black offering almost any possible unified combination of these lists, adblock-lean only supports short list identifiers for these 5 lists. `base` is the main Steven Black's hosts list.
+2. Construct a list identifier in the format `stevenblack:[list_name]`, for example: `stevenblack:base`
+3. Add the list identifier to the option for **hosts-formatted** blocklist or allowlist URLs in adblock-lean config file (depending on which list you picked) (e.g. a blocklist identifier should be added to the `hosts_block_lists` config option)
 
 ### Adding another list
 - Any other raw or dnsmasq format lists of your choice can be used by specifying its download URL, but make sure the list conforms to [supported formats](#supported-formats).
@@ -207,35 +220,37 @@ oisd lists can be specified either by the complete download URL or by shortened 
 
 | Option                              | Description                                                                                   |
 | :-----------------------------------| :-------------------------------------------------------------------------------------------- |
-|`whitelist_mode`                     | Block all domains except domains in the allowlists and their subdomains. 1/0 to enable/disable|
-|`blocklist_urls`                     | One or more raw blocklist URLs to download and process                                        |
-|`blocklist_ipv4_urls`                | One or more raw ipv4 blocklist URLs to download and process                                   |
-|`allowlist_urls`                     | One or more raw allowlist URLs to download and process                                        |
-|`dnsmasq_blocklist_urls`             | One or more dnsmasq format blocklist URLs to download and process                             |
-|`dnsmasq_blocklist_ipv4_urls`        | One or more dnsmasq format ipv4 blocklist URLs to download and process                        |
-|`dnsmasq_allowlist_urls`             | One or more dnsmasq format allowlist URLs to download and process                             |
-|`local_allowlist_path`               | Path to local allowlist (included domains will not be blocked)                                |
-|`local_blocklist_path`               | Path to local blocklist (included domains will be blocked)                                    |
-|`test_domains`                       | Domains used to test DNS resolution after loading the final blocklist                         |
-|`list_part_failed_action`            | Governs failed lists handling: 'SKIP' or 'STOP'                                               |
-|`max_download_retries`               | Maximum number of download retries for allowlist/blocklist parts                              |
-|`min_good_line_count`                | Minimum number of good lines in final postprocessed blocklist                                 |
-|`min_blocklist_part_line_count`      | Minimum number of lines of individual downloaded blocklist part                               |
-|`min_blocklist_ipv4_part_line_count` | Minimum number of lines of individual downloaded ipv4 blocklist part                          |
-|`min_allowlist_part_line_count`      | Minimum number of lines of individual downloaded allowlist part                               |
-|`max_file_part_size_KB`              | Maximum size in KB of any individual downloaded blocklist part                                |
-|`max_blocklist_file_size_KB`         | Maximim size in KB of combined, processed blocklist                                           |
-|`deduplication`                      | Whether to perform sorting and deduplication of entries                                       |
-|`compression_util`                   | Utility used to compress while processing, and final blocklists. Reduces memory usage. `none` disables compression |
-|`intermediate_compression_options`   | Options passed to the compression utility while processing. `-[n]` universally specifies compression level.        |
-|`final_compression_options`          | Same as above but these options are passed to the compression utility when compressing the final blocklist.        |
-|`unload_blocklist_before_update`     | Unload current blocklist before update to save memory. 'auto' or 1/0 to enable/disable.       |
-|`boot_start_delay_s`                 | Start delay in seconds when service is started from system boot                               |
-|`MAX_PARALLEL_JOBS`                  | Max count of download and processing jobs to run in parallel. 'auto' sets this automatically  |
-|`custom_script`                      | Path to custom user script to execute on success on failure                                   |
-|`cron_schedule`                      | Crontab schedule for automatic blocklist updates or `disable`                                 |
-|`DNSMASQ_INDEXES`                    | Indexes of dnsmasq instances to adblock on. Normally set automatically by the `setup` command |
-|`DNSMASQ_CONF_DIRS`                  | Conf-dirs used by the dnsmasq instances. Normally set automatically by the `setup` command    |
+|`whitelist_mode`                    | Block all domains except domains in the allowlists and their subdomains. 1/0 to enable/disable|
+|`raw_block_lists`                   | One or more raw blocklist URLs to download and process                                    |
+|`raw_ipv4_block_lists`              | One or more raw ipv4 blocklist URLs to download and process                               |
+|`raw_allow_lists`                   | One or more raw allowlist URLs to download and process                                    |
+|`dnsmasq_block_lists`               | One or more dnsmasq format blocklist URLs to download and process                         |
+|`dnsmasq_ipv4_block_lists`          | One or more dnsmasq format ipv4 blocklist URLs to download and process                    |
+|`dnsmasq_allow_lists`               | One or more dnsmasq format allowlist URLs to download and process                         |
+|`hosts_block_lists`                 | One or more dnsmasq format blocklist URLs to download and process                         |
+|`hosts_allow_lists`                 | One or more dnsmasq format allowlist URLs to download and process                         |
+|`local_allowlist_path`              | Path to local allowlist (included domains will not be blocked)                            |
+|`local_blocklist_path`              | Path to local blocklist (included domains will be blocked)                                |
+|`test_domains`                      | Domains used to test DNS resolution after loading the final blocklist                     |
+|`list_part_failed_action`           | Governs failed lists handling: 'SKIP' or 'STOP'                                           |
+|`max_download_retries`              | Maximum number of download retries for allowlist/blocklist parts                          |
+|`min_good_line_count`               | Minimum number of good lines in final postprocessed blocklist                             |
+|`min_blocklist_part_line_count`     | Minimum number of lines of individual downloaded blocklist part                           |
+|`min_blocklist_ipv4_part_line_count`| Minimum number of lines of individual downloaded ipv4 blocklist part                      |
+|`min_allowlist_part_line_count`     | Minimum number of lines of individual downloaded allowlist part                           |
+|`max_file_part_size_KB`             | Maximum size in KB of any individual downloaded blocklist part                            |
+|`max_blocklist_file_size_KB`        | Maximim size in KB of combined, processed blocklist                                       |
+|`deduplication`                     | Whether to perform sorting and deduplication of entries                                   |
+|`compression_util`                  | Utility used to compress while processing, and final blocklists. Reduces memory usage. `none` disables compression |
+|`intermediate_compression_options`  | Options passed to the compression utility while processing. `-[n]` universally specifies compression level.        |
+|`final_compression_options`         | Same as above but these options are passed to the compression utility when compressing the final blocklist.        |
+|`unload_blocklist_before_update`    | Unload current blocklist before update to save memory. 'auto' or 1/0 to enable/disable.    |
+|`boot_start_delay_s`                | Start delay in seconds when service is started from system boot                            |
+|`MAX_PARALLEL_JOBS`                 | Max count of download and processing jobs to run in parallel. 'auto' sets this automatically  |
+|`custom_script`                     | Path to custom user script to execute on success on failure                                |
+|`cron_schedule`                     | Crontab schedule for automatic blocklist updates or `disable`                              |
+|`DNSMASQ_INDEXES`                   | Indexes of dnsmasq instances to adblock on. Normally set automatically by the `setup` command |
+|`DNSMASQ_CONF_DIRS`                 | Conf-dirs used by the dnsmasq instances. Normally set automatically by the `setup` command |
 
 For devices with low memory capacity (less than 512MiB), the option `unload_blocklist_before_update`, when set to `auto`, will cause previous blocklist to be unloaded before downloading and processing a new one, in order to free up memory. For other cases of memory scarcity, consider setting this option to `1`.
 
@@ -261,26 +276,26 @@ The pre-defined presets are:
 
 - **Mini**: for devices with 64MB of RAM. Aim for <100k entries. This preset includes circa 85k entries
 ```bash
-blocklist_urls="hagezi:pro.mini"
+raw_block_lists="hagezi:pro.mini"
 ```
 
 - **Small**: for devices with 128MB of RAM. Aim for <300k entries. This preset includes circa 250k entries
 ```bash
-blocklist_urls="hagezi:pro"
+raw_block_lists="hagezi:pro"
 ```
 
 - **Medium**: for devices with 256MB of RAM. Aim for <600k entries. This preset includes circa 350k entries
 ```bash
-blocklist_urls="hagezi:pro hagezi:tif.mini"
+raw_block_lists="hagezi:pro hagezi:tif.mini"
 ```
 
 - **Large**: for devices with 512MB of RAM. This preset includes circa 1M entries
 ```bash
-blocklist_urls="hagezi:pro hagezi:tif"
+raw_block_lists="hagezi:pro hagezi:tif"
 ```
 - **Large-Relaxed**: for devices with 1024MB of RAM or more. This preset includes circa 1M entries and same default blocklist URLs as 'Large' but the `max` values are more relaxed and allow for larger fluctuations in downloaded blocklist sizes.
 ```bash
-blocklist_urls="hagezi:pro hagezi:tif"
+raw_block_lists="hagezi:pro hagezi:tif"
 ```
 
 ### Blocklist compression
