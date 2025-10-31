@@ -133,7 +133,7 @@ suggest_addnmounts()
 		if [ -n "${missing_addnmounts}" ]
 		then
 			log_msg -yellow "" "Detected missing addnmount entries in /etc/config/dhcp for paths: ${missing_addnmounts}"
-			if [ -n "${DO_DIALOGS}" ] && [ -z "${force_fix}" ]
+			if [ "${DO_DIALOGS}" = 1 ] && [ -z "${force_fix}" ]
 			then
 				print_msg -blue "" "Create missing addnmount entries automatically? (y|n)"
 				pick_opt "y|n" || return 1
@@ -269,7 +269,7 @@ do_setup()
 				*) free_space_B=$((free_space_KB*1024))
 			esac
 
-			if [ -n "${DO_DIALOGS}" ]
+			if [ "${DO_DIALOGS}" = 1 ]
 			then
 				print_msg "" "For improved performance while processing the lists, it is recommended to install ${missing_utils_print}." \
 					"Corresponding packages are: ${missing_packages}."
@@ -283,7 +283,7 @@ do_setup()
 			for util in ${missing_utils}
 			do
 				REPLY=n
-				if [ -n "${DO_DIALOGS}" ]
+				if [ "${DO_DIALOGS}" = 1 ]
 				then
 					eval "util_size_B=\"\${${util}_size_B}\""
 					bytes2human util_size_human "${util_size_B}"
@@ -306,7 +306,7 @@ do_setup()
 		if [ -n "${pkgs2install}" ]
 		then
 			REPLY=n
-			if [ -n "${DO_DIALOGS}" ]
+			if [ "${DO_DIALOGS}" = 1 ]
 			then
 				bytes2human utils_size_human "${utils_size_B}"
 				print_msg "" "Selected packages: ${blue}${pkgs2install% }${n_c}" \
@@ -355,7 +355,7 @@ do_setup()
 
 	if [ -s "${ABL_CONFIG_FILE}" ]
 	then
-		if [ -n "${DO_DIALOGS}" ]
+		if [ "${DO_DIALOGS}" = 1 ]
 		then
 			print_msg "" "Existing config file found." "Generate [n]ew config or use [e]xisting config? (n|e)"
 			pick_opt 'n|e' || return 1
@@ -404,7 +404,7 @@ do_setup()
 				"Consider to check for their presence and install if needed."
 	esac
 
-	if [ -n "${DO_DIALOGS}" ]
+	if [ "${DO_DIALOGS}" = 1 ]
 	then
 		print_msg "" "${purple}Setup is complete.${n_c}" "" "Start adblock-lean now? (y|n)"
 		pick_opt "y|n" || return 1
@@ -646,6 +646,14 @@ print_def_config()
 	# Maximum number of download retries
 	max_download_retries="3" @ integer
 
+	# Default download mirrors.
+	# Hagezi mirror: 'github' or 'gitlab'
+	hagezi_default_mirror="github" @ github|gitlab
+	# oisd mirror: 'oisd' or 'github'
+	oisd_default_mirror="oisd" @ oisd|github
+	# Steven Black mirror: 'github' or 'sbc_io' for sbc.io
+	stevenblack_default_mirror="github" @ github|sbc_io
+
 	# Minimum number of good lines in final postprocessed blocklist
 	min_good_line_count="${min_good_line_count}" @ integer
 
@@ -709,7 +717,7 @@ do_gen_config()
 {
 	local cnt totalmem totalmem_human preset
 
-	if [ -n "${DO_DIALOGS}" ] && [ -z "${luci_preset}" ]
+	if [ "${DO_DIALOGS}" = 1 ] && [ -z "${luci_preset}" ]
 	then
 		mk_preset_arrays
 		get_def_preset preset totalmem || print_msg "Skipping automatic preset recommendation."
@@ -755,7 +763,7 @@ do_gen_config()
 	local def_schedule="0 5 * * *" def_schedule_desc="daily at 5am (5 o'clock at night)"
 
 	REPLY=n
-	if [ -n "${DO_DIALOGS}" ]
+	if [ "${DO_DIALOGS}" = 1 ]
 	then
 		print_msg "" "${purple}Cron job configuration:${n_c}" \
 			"A cron job can be created to enable automatic list updates." \
@@ -902,8 +910,10 @@ parse_config()
 	# extract valid values from default config
 	valid_lines="$(print_def_config -d | ${SED_CMD} "${sed_conf_san_exp}")"
 	# parse config
-	local parser_error_file="${ABL_CONF_STAGING_DIR}/parser_error" inval_entry_file="${ABL_CONF_STAGING_DIR}/inval_entry"
-	rm -f "${parser_error_file}" "${inval_entry_file}"
+	local parser_err_file="${ABL_CONF_STAGING_DIR}/parser_err" \
+		awk_err_file="${ABL_CONF_STAGING_DIR}/awk_err" \
+		inval_entry_file="${ABL_CONF_STAGING_DIR}/inval_entry"
+	rm -f "${parser_err_file}" "${awk_err_file}" "${inval_entry_file}"
 	for entry_type in unexp bad_val missing dup migrate
 	do
 		rm -f "${ABL_CONF_STAGING_DIR}/${entry_type}_entries"
@@ -937,10 +947,10 @@ parse_config()
 				def_lines_arr[ind]=def_lines_arr[ind]
 				# validate default config line
 				n=split(def_lines_arr[ind],def_line_parts,"[=@]") # split into key, value, allowed values
-				if (n!=3) {print "Invalid line in default config: " q def_lines_arr[ind] q "." > "/dev/stderr"; rv=1; exit}
+				if (n!=3) {print "Invalid line in default config: " q def_lines_arr[ind] q "." > A"/parser_err"; rv=1; exit}
 				for (i in def_line_parts) {
 					if (! def_line_parts[i]) {
-						print "Invalid line in default config: " q def_lines_arr[ind] q " is missing the " line_comp[i] "." > "/dev/stderr"
+						print "Invalid line in default config: " q def_lines_arr[ind] q " is missing the " line_comp[i] "." > A"/parser_err"
 						rv=1
 						exit
 					}
@@ -1081,10 +1091,11 @@ parse_config()
 				"\n" migrate_opts
 			exit rv
 		}'
-	)" 2> "${parser_error_file}" && [ ! -s "${parser_error_file}" ] ||
+	)" 2> "${awk_err_file}" && [ ! -s "${awk_err_file}" ] && [ ! -s "${parser_err_file}" ] ||
 	{
 		local awk_rv=${?} inval_entry=''
-		[ -s "${parser_error_file}" ] && reg_failure "awk errors encountered while parsing config:${_NL_}$(cat "${parser_error_file}")"
+		[ -s "${awk_err_file}" ] && reg_failure "awk errors encountered while parsing config:${_NL_}$(cat "${awk_err_file}")"
+		[ -s "${parser_err_file}" ] && reg_failure "Parser errors encountered while parsing config:${_NL_}$(cat "${parser_err_file}")"
 		[ -s "${inval_entry_file}" ] && inval_entry=": $(cat "${inval_entry_file}")"
 
 		case "${awk_rv}" in
@@ -1097,11 +1108,11 @@ parse_config()
 	}
 
 	local err_print=''
-	rm -f "${parser_error_file}"
+	rm -f "${parser_err_file}"
 
-	eval "${parse_vars}" 2> "${parser_error_file}" && [ ! -s "${parser_error_file}" ] ||
+	eval "${parse_vars}" 2> "${parser_err_file}" && [ ! -s "${parser_err_file}" ] ||
 	{
-		[ -s "${parser_error_file}" ] && err_print=" Errors: ${_NL_}$(cat "${parser_error_file}")"
+		[ -s "${parser_err_file}" ] && err_print=" Errors: ${_NL_}$(cat "${parser_err_file}")"
 		reg_failure "Failed to parse config.${err_print}"
 		return 3
 	}
@@ -1190,9 +1201,8 @@ load_config()
 	local key val line force_fix='' l_replace_keys='' l_migrated_keys='' l_conf_fixes=''
 	[ "${1}" = '-f' ] || [ -n "${APPROVE_UPD_CHANGES}" ] && force_fix=1
 
-	# Need to set DO_DIALOGS here for compatibility when updating from earlier versions
-	local DO_DIALOGS=
-	[ -z "${ABL_LUCI_SOURCED}" ] && [ -z "${APPROVE_UPD_CHANGES}" ] && [ "${MSGS_DEST}" = "/dev/tty" ] && DO_DIALOGS=1
+	[ -z "${DO_DIALOGS}" ] && [ -z "${ABL_LUCI_SOURCED}" ] && [ -z "${APPROVE_UPD_CHANGES}" ] && [ "${MSGS_DEST}" = "/dev/tty" ] &&
+		DO_DIALOGS=1
 
 	if [ ! -f "${ABL_CONFIG_FILE}" ]
 	then
@@ -1213,12 +1223,12 @@ load_config()
 	esac
 
 	# if not in interactive console and force-fix not set, return error
-	[ -z "${DO_DIALOGS}" ] && [ -z "${force_fix}" ] && { log_msg "${tip_msg}"; return 1; }
+	[ "${DO_DIALOGS}" != 1 ] && [ -z "${force_fix}" ] && { log_msg "${tip_msg}"; return 1; }
 
 	# sanity check
 	[ -z "${l_conf_fixes}" ] && { reg_failure "Failed to parse config."; return 1; }
 
-	if [ -n "${DO_DIALOGS}" ] && [ -z "${force_fix}" ]
+	if [ "${DO_DIALOGS}" = 1 ] && [ -z "${force_fix}" ]
 	then
 		if [ -n "${l_conf_fixes}" ]
 		then
@@ -1298,7 +1308,7 @@ fix_config()
 		reg_failure "Failed to save old config file as ${old_config_f}."
 		if [ -z "${APPROVE_UPD_CHANGES}" ]
 		then
-			[ -z "${DO_DIALOGS}" ] && return 1
+			[ "${DO_DIALOGS}" = 1 ] || return 1
 			print_msg "Proceed with suggested config changes? (y|n)"
 			pick_opt "y|n" || return 1
 			[ "${REPLY}" = n ] && return 1
@@ -1320,7 +1330,7 @@ write_config()
 
 	[ -z "${1}" ] && { reg_failure "write_config(): no config passed."; return 1; }
 
-	if [ -n "${DO_DIALOGS}" ] && [ -z "${APPROVE_UPD_CHANGES}" ] && [ -f "${ABL_CONFIG_FILE}" ]
+	if [ "${DO_DIALOGS}" = 1 ] && [ -z "${APPROVE_UPD_CHANGES}" ] && [ -f "${ABL_CONFIG_FILE}" ]
 	then
 		print_msg "This will overwrite existing config. Proceed? (y|n)"
 		pick_opt "y|n" && [ "${REPLY}" != n ] || return 1
@@ -1662,7 +1672,7 @@ do_select_dnsmasq_instances() {
 			# if conf-dirs are not shared, ask the user
 			reg_msg -blue "Multiple dnsmasq instances detected."
 			REPLY=a
-			if [ -n "${DO_DIALOGS}" ]
+			if [ "${DO_DIALOGS}" = 1 ]
 			then
 				reg_msg "" "Existing dnsmasq instances and assigned network interfaces:"
 				for index in ${DNSMASQ_RUNNING_INDEXES}
