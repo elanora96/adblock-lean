@@ -215,7 +215,7 @@ read_str_from_file()
 	while :
 	do
 		rs_attempt=$((rs_attempt+1))
-		[ "${rs_attempt}" -le "${rs_attempts}" ] || { rs_read_failed=1; break 2; }
+		[ "${rs_attempt}" -le "${rs_attempts}" ] || { rs_read_failed=1; break; }
 		[ "${rs_attempt}" = 1 ] || sleep 1
 
 		read -r ${rs_num_bytes?} ${rs_outvars?} 2>/dev/null < "${rs_file}"
