@@ -30,7 +30,7 @@ hagezi_mirrors="github gitlab" \
 \
 oisd_lists="big small nsfw nsfw-small" \
 oisd_formats="raw dnsmasq" \
-oisd_mirrors="oisd" \
+oisd_mirrors="oisd github" \
 	oisd_oisd_url="oisd.nl" \
 	oisd_github_url="https://raw.githubusercontent.com/sjhgvr/oisd/main" \
 \
