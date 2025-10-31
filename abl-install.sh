@@ -45,8 +45,8 @@ fi
 # $luci_skip_dialogs is set if sourced from external RPC script for luci
 [ -n "${luci_skip_dialogs}" ] && export ABL_LUCI_SOURCED=1
 
-DO_DIALOGS=
-[ -z "${ABL_LUCI_SOURCED}" ] && [ -z "${APPROVE_UPD_CHANGES}" ] && [ "${MSGS_DEST}" = "/dev/tty" ] && DO_DIALOGS=1
+[ -z "${DO_DIALOGS}" ] && [ -z "${ABL_LUCI_SOURCED}" ] && [ -z "${APPROVE_UPD_CHANGES}" ] && [ "${MSGS_DEST}" = "/dev/tty" ] && \
+	DO_DIALOGS=1
 
 if sed --version 2>/dev/null | grep -qe '(GNU sed)'
 then
@@ -842,7 +842,7 @@ fetch_and_install()
 
 	if ${ABL_SERVICE_PATH} enabled
 	then
-		${ABL_SERVICE_PATH} stop
+		DO_DIALOGS=0 ${ABL_SERVICE_PATH} stop
 	fi 2>/dev/null
 
 	rm -rf "${ABL_UPD_DIR:-???}"
@@ -911,7 +911,7 @@ fetch_and_install()
 	rm -rf "${ABL_UPD_DIR:-???}" "${ABL_PID_DIR:-???}" "${UCL_ERR_FILE:-???}"
 	log_msg "" "adblock-lean (version '${upd_ver}') has been installed."
 
-	if [ -n "${DO_DIALOGS}" ]
+	if [ "${DO_DIALOGS}" = 1 ]
 	then
 		if [ -n "${IS_UPDATE}" ] && [ -s "${ABL_CONFIG_FILE}" ]
 		then
