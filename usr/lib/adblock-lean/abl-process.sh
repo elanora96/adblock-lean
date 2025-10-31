@@ -16,6 +16,30 @@ IDLE_TIMEOUT_S=300 # 5 minutes
 
 ABL_TEST_DOMAIN="adblocklean-test123.totallybogus"
 
+ALL_LIST_FORMATS="raw dnsmasq hosts"
+
+# shellcheck disable=SC2034
+hagezi_lists="anti.piracy blocklist-referral doh doh-vpn-proxy-bypass dyndns fake gambling gambling.medium gambling.mini hoster \
+light multi native.amazon native.apple native.huawei native.lgwebos native.oppo-realme native.roku native.samsung \
+native.tiktok native.tiktok.extended native.vivo native.winoffice native.xiaomi nosafesearch nsfw popupads \
+pro pro.mini pro.plus pro.plus.mini social tif tif.medium tif.mini ultimate ultimate.mini urlshortener whitelist-referral" \
+hagezi_formats="raw dnsmasq" \
+hagezi_mirrors="github gitlab" \
+	hagezi_github_url="https://raw.githubusercontent.com/hagezi/dns-blocklists/main" \
+	hagezi_gitlab_url="https://gitlab.com/hagezi/mirror/-/raw/main/dns-blocklists" \
+\
+oisd_lists="big small nsfw nsfw-small" \
+oisd_formats="raw dnsmasq" \
+oisd_mirrors="oisd" \
+	oisd_oisd_url="oisd.nl" \
+	oisd_github_url="https://raw.githubusercontent.com/sjhgvr/oisd/main" \
+\
+stevenblack_lists="base fakenews gambling porn social" \
+stevenblack_formats="hosts" \
+stevenblack_mirrors="github sbc_io" \
+	stevenblack_github_url="https://raw.githubusercontent.com/StevenBlack/hosts/master" \
+	stevenblack_sbc_io_url="http://sbc.io/hosts"
+
 
 # UTILITY FUNCTIONS
 
@@ -45,7 +69,8 @@ try_extract()
 # returns status 0 if the result is null, 1 if not
 subtract_a_from_b() {
 	local sab_out="${3:-___dummy}" IFS="${DEFAULT_IFS}"
-	case "${2}" in '') unset "${sab_out}"; return 0; esac
+	are_var_names_safe "${sab_out}" || return 1
+	case "${2}" in '') eval "${sab_out}=''"; return 0; esac
 	case "${1}" in '') eval "${sab_out}"='${2}'; [ ! "${2}" ]; return; esac
 	local _fs_su="${4:-"${_NL_}"}"
 	local e rv_su=0 _subt=
@@ -84,6 +109,83 @@ get_elapsed_time_s()
 
 
 # HELPER FUNCTIONS
+
+# 1 - var name for output
+# 2 - list URL or short identifier
+# 3 - list format (raw|dnsmasq)
+# 4 - DL mirror
+# shellcheck disable=SC2329
+get_list_url()
+{
+	local base_url='' prefix='' suffix='' raw_suffix='' dnsmasq_suffix='' hosts_suffix='' \
+		res_url list_author list_name lists='' list_id_lc list_formats \
+		mirrors first_mirror \
+		out_var="${1}" list_id="${2}" list_format="${3}" mirror="${4}"
+
+	are_var_names_safe "${out_var}" || return 1
+
+	case "${list_format}" in raw|dnsmasq|hosts) ;; *) reg_failure "Unexpected list format '${list_format}'."; return 1; esac
+
+	case "${list_id}" in
+		*[A-Z]*) list_id_lc="$(printf '%s' "${list_id}" | tr 'A-Z' 'a-z')" ;;
+		*) list_id_lc="${list_id}"
+	esac
+	case "${list_id_lc}" in hagezi:*|oisd:*|stevenblack:*) ;; *)
+		eval "${out_var}=\"${list_id}\""
+		return 0
+	esac
+	list_id="${list_id_lc}"
+
+	eval "${out_var}=''"
+
+	list_author="${list_id%%\:*}" list_name="${list_id#*\:}"
+
+	eval "lists=\"\${${list_author}_lists}\""
+	eval "base_url=\"\${${list_author}_${mirror}_url}\""
+	[ -n "${base_url}" ] || { reg_failure "Failed to get base URL for ${list_author} mirror '${mirror}'."; return 1; }
+
+	is_included "${list_name}" "${lists}" " " || { reg_failure "Unknown ${list_author} list '${2}'."; return 1; }
+
+	eval "list_formats=\"\${${list_author}_formats}\""
+	is_included "${list_format}" "${list_formats}" " " ||
+		{ reg_failure "${list_id} is only available in formats: ${list_formats}."; return 1; }
+
+	eval "mirrors=\"\${${list_author}_mirrors}\""
+	is_included "${mirror}" "${mirrors}" " " ||
+		{ reg_failure "Unexpected mirror '${mirror}' for list author ${list_author}."; return 1; }
+
+	case "${list_author}" in
+		hagezi)
+			prefix="${base_url}"
+			raw_suffix="/wildcard/${list_name}-onlydomains.txt"
+			dnsmasq_suffix="/dnsmasq/${list_name}.txt" ;;
+		stevenblack)
+			prefix="${base_url}"
+			case "${list_name}" in
+				base) hosts_suffix="/hosts" ;;
+				*) hosts_suffix="/alternates/${list_name}-only/hosts"
+			esac ;;
+		oisd)
+			case "${mirror}" in
+				oisd)
+					prefix="https://${list_name}.${base_url}"
+					raw_suffix="/domainswild2"
+					dnsmasq_suffix="/dnsmasq2" ;;
+				github)
+					prefix="${base_url}"
+					list_name="${list_name//-/_}"
+					raw_suffix="/domainswild2_${list_name}.txt"
+					dnsmasq_suffix="/dnsmasq2_${list_name}.txt"
+			esac
+	esac
+
+	eval "suffix=\"\${${list_format}_suffix}\""
+	res_url="${prefix}${suffix}"
+	[ -n "${res_url}" ] || { reg_failure "Failed to construct URL for list identifier '${list_id}'."; return 1; }
+
+	: "${raw_suffix}" "${dnsmasq_suffix}" "${hosts_suffix}"
+	eval "${out_var}=\"${res_url}\""
+}
 
 check_confscript_support()
 {
@@ -237,11 +339,11 @@ get_curr_job_pid()
 # 2 - list path
 handle_fatal()
 {
-	local fatal_pid="${1}" fatal_path="${2}"
+	local fatal_pid="${1}" fatal_print_id="${2}"
 	if [ -n "${fatal_pid}" ]
 	then
-		: "${fatal_path:=unknown}"
-		reg_failure "Processing job (PID: ${fatal_pid}) for list '${fatal_path}' reported fatal error."
+		: "${fatal_print_id:=unknown}"
+		reg_failure "Processing job (PID: ${fatal_pid}) for list '${fatal_print_id}' reported fatal error."
 	else
 		reg_failure "Fatal error reported by unknown processing job."
 	fi
@@ -255,7 +357,7 @@ handle_fatal()
 # 2 - job return code
 handle_done_job()
 {
-	local done_pid="${1}" done_job_rv="${2}" done_path me=handle_done_job
+	local done_pid="${1}" done_job_rv="${2}" done_id me=handle_done_job
 	[ -n "${done_pid}" ] || { reg_failure "${me}: received empty string for PID."; return 1; }
 	[ -n "${done_job_rv}" ] || { reg_failure "${me}: received empty string instead of return code for job ${done_pid}."; return 1; }
 
@@ -264,9 +366,9 @@ handle_done_job()
 
 	if [ "${done_job_rv}" != 0 ]
 	then
-		eval "done_path=\"\${JOB_URL_${done_pid}}\""
+		eval "done_id=\"\${JOB_PRINT_ID_${done_pid}}\""
 
-		reg_failure "Processing job (PID ${done_pid}) for list '${done_path}' returned error code '${done_job_rv}'."
+		reg_failure "Processing job (PID ${done_pid}) for list '${done_id}' returned error code '${done_job_rv}'."
 		[ "${list_part_failed_action}" = "STOP" ] && { log_msg "list_part_failed_action is set to 'STOP', exiting."; return 1; }
 		log_msg -yellow "Skipping file and continuing."
 	fi
@@ -312,22 +414,26 @@ get_remaining_time()
 # the rest of the args passed as-is to workers
 schedule_job()
 {
-	# wait for job vacancy
-	local remaining_time_s done_pid done_rv
+	local remaining_time_s done_pid done_rv print_id
+	eval "print_id=\"\${${list_format}_${list_type}_${index}_print_id}\""
+
 	get_remaining_time remaining_time_s || return 1
 
+	# wait for job vacancy
 	while [ "${RUNNING_JOBS_CNT}" -ge "${PARALLEL_JOBS}" ] && [ -e "${SCHED_CB_FIFO}" ] &&
 		read -t "${remaining_time_s}" -r done_pid done_rv < "${SCHED_CB_FIFO}"
 	do
 		get_remaining_time remaining_time_s || return 1
 		handle_done_job "${done_pid}" "${done_rv}" || return 1
 	done
+
 	get_remaining_time remaining_time_s || return 1
 
 	RUNNING_JOBS_CNT=$((RUNNING_JOBS_CNT+1))
 	process_list_part "${@}" &
 
 	RUNNING_PIDS="${RUNNING_PIDS} ${!}"
+	export "JOB_PRINT_ID_${!}"="${print_id}"
 
 	:
 }
@@ -340,7 +446,7 @@ schedule_jobs()
 		trap ':' USR1
 		[ "${1}" != 0 ] && [ -n "${RUNNING_PIDS}" ] &&
 		{
-			reg_msg "" "Stopping unfinished jobs (PIDS: ${RUNNING_PIDS})."
+			reg_msg -yellow "" "Stopping unfinished jobs (PIDS: ${RUNNING_PIDS})."
 			kill_pids_recursive "${RUNNING_PIDS}"
 			rm -rf "${PROCESSED_PARTS_DIR}" 2>/dev/null
 		}
@@ -348,7 +454,7 @@ schedule_jobs()
 		exit "${1}"
 	}
 
-	local list_type list_format print_id list_url index indexes \
+	local list_type list_format index indexes \
 		SCHEDULER_PID \
 		list_types="${1}"
 	get_curr_job_pid SCHEDULER_PID || finalize_scheduler 1
@@ -373,29 +479,9 @@ schedule_jobs()
 
 			for index in ${indexes}
 			do
-				eval "print_id=\"\${${list_format}_${list_type}_${index}_print_id}\""
-				eval "list_url=\"\${${list_format}_${list_type}_${index}_url}\""
-				schedule_job DL "${print_id}" "${list_url}" "${list_type}" "${list_format}" || finalize_scheduler 1
-				export "JOB_URL_${!}"="${list_url}"
+				schedule_job "${index}" "${list_type}" "${list_format}" || finalize_scheduler 1
 			done
 		done
-
-		# schedule local jobs
-		if [ "${list_type}" != ipv4_block ]
-		then
-			local local_list_path
-			eval "local_list_path=\"\${local_${list_type}list_path}\""
-			if [ ! -f "${local_list_path}" ]
-			then
-				reg_msg "No local ${list_type}list identified."
-			elif [ ! -s "${local_list_path}" ]
-			then
-				log_msg -warn "" "Local ${list_type}list file is empty."
-			else
-				schedule_job LOCAL "${local_list_path}" "${local_list_path}" "${list_type}" raw || finalize_scheduler 1
-				export "JOB_URL_${!}"="${local_list_path}"
-			fi
-		fi
 	done
 
 	# wait for jobs to finish and handle errors
@@ -414,10 +500,9 @@ schedule_jobs()
 	finalize_scheduler 0
 }
 
-# 1 - list origin (DL|LOCAL)
-# 2 - list URL or local path
-# 3 - list type (block|ipv4_block|allow)
-# 4 - list format (raw|dnsmasq)
+# 1 - list index
+# 2 - list type (block|ipv4_block|allow)
+# 3 - list format (raw|dnsmasq|hosts)
 # the rest of the args passed as-is to workers
 #
 # return codes:
@@ -435,7 +520,7 @@ process_list_part()
 			0)
 				local list_size_human stats_pad suffix_pad msg1 msg2
 				bytes2human list_size_human "${part_size_B}" -p
-				get_pad stats_pad "${print_id}" 28
+				get_pad stats_pad "${print_id}" 38
 				get_pad suffix_pad "${line_count_human}" 8
 				msg1="Successfully processed list:  "
 				msg2="${stats_pad}[ ${list_size_human} - ${suffix_pad}${line_count_human} lines ]"
@@ -443,7 +528,7 @@ process_list_part()
 				reg_msg -noprint "${msg1}${print_id} ${msg2}" ;;
 			*)
 				rm -f "${dest_file}" "${list_stats_file}"
-				[ "${1}" = 1 ] && handle_fatal "${curr_job_pid}" "${list_path}"
+				[ "${1}" = 1 ] && handle_fatal "${curr_job_pid}" "${print_id}"
 		esac
 
 		printf '%s\n' "${curr_job_pid} ${1}" > "${SCHED_CB_FIFO}"
@@ -473,13 +558,40 @@ process_list_part()
 
 	case_conv() { tr 'A-Z' 'a-z'; }
 
-	local list_origin="${1}" print_id="${2}" list_path="${3}" list_type="${4}" list_format="${5}" curr_job_pid msg pad
+	local curr_job_pid msg msg_mirr pad \
+		list_origin='' list_path='' list_author='' mirrors='' mirror='' curr_mirror='' first_mirror='' loop_prev_mirror='' \
+		index="${1}" list_type="${2}" list_format="${3}"
 
 	get_curr_job_pid curr_job_pid || finalize_job 1
 
-	for v in 1 2 3 4; do
-		eval "[ -z \"\${${v}}\" ]" && finalize_job 1 "Missing argument ${v}."
+	for v in 1 2 3; do
+		eval "[ -n \"\${${v}}\" ]" || finalize_job 1 "Missing argument ${v}."
 	done
+
+	eval "list_origin=\"\${${list_format}_${list_type}_${index}_origin}\""
+
+	for v in list_origin print_id; do
+		eval "[ -n \"\${${v}}\" ]" || finalize_job 1 "Missing param: '${v}'."
+	done
+
+	list_path="${print_id}"
+
+	if [ "${list_origin}" = DL ] &&
+		list_author="${print_id%:*}" &&
+		case "${list_author}" in
+			hagezi|oisd|stevenblack) : ;;
+			*) false
+		esac
+	then
+		eval "mirrors=\"\${${list_author}_mirrors}\"" &&
+		trim_spaces mirrors &&
+		[ -n "${mirrors}" ] &&
+		first_mirror="${mirrors%% *}" &&
+		[ -n "${first_mirror}" ] || finalize_job 1 "Failed to process download mirrors for list author ${list_author}."
+
+		eval "curr_mirror=\"\${${list_author}_default_mirror}\""
+		: "${curr_mirror:="${first_mirror}"}"
+	fi
 
 	local list_id="${list_type}-${list_origin}-${list_format}"
 	local job_id="${list_id}-${curr_job_pid}"
@@ -526,13 +638,23 @@ process_list_part()
 
 	while :
 	do
+		# use forced mirror for this list author if set
+		if [ "${list_origin}" = DL ] && [ -n "${list_author}" ]
+		then
+			read_str_from_file -v curr_mirror -f "${SCHEDULE_DIR}/${list_author}-forced-mirror" -a 1 -q -n 128 -V "${curr_mirror}"
+			get_list_url list_path "${print_id}" "${list_format}" "${curr_mirror}" || finalize_job 1
+		fi
+
+		msg_mirr=
+		[ -n "${curr_mirror}" ] && msg_mirr=" (mirror: ${curr_mirror})"
+
 		rm -f "${rogue_el_file}" "${list_stats_file}" "${size_exceeded_file}" "${ucl_err_file}"
 
 		msg="Processing ${list_format} ${list_type}list"
 		get_pad pad "${msg}" 28
 
-		print_msg "${msg}: ${pad}${blue}${print_id}${n_c}"
-		reg_msg -noprint "${msg}: ${pad}${print_id}"
+		print_msg "${msg}: ${pad}${blue}${print_id}${n_c}${msg_mirr}"
+		reg_msg -noprint "${msg}: ${pad}${print_id}${msg_mirr}"
 
 		# Download or cat the list
 		${fetch_cmd} "${list_path}" |
@@ -618,29 +740,46 @@ process_list_part()
 
 		if [ "${list_origin}" = DL ] && { [ -z "${dl_completed}" ] || [ -n "${lines_cnt_low}" ]; }
 		then
-			reg_failure "Failed download attempt for URL '${list_path}'."
+			reg_failure "Failed download attempt for list '${print_id}'."
 			[ -s "${ucl_err_file}" ] && log_msg "uclient-fetch output: ${_NL_}'$(cat "${ucl_err_file}")'."
 			rm -f "${ucl_err_file}"
 		else
 			rm -f "${ucl_err_file}"
+			# set this mirror as forced if this is not the first DL attempt
+			[ "${list_origin}" = DL ] && [ -n "${list_author}" ] && [ "${retry}" != 1 ] &&
+				printf '%s\n' "${curr_mirror}" > "${SCHEDULE_DIR}/${list_author}-forced-mirror"
 			finalize_job 0
 		fi
 
 		retry=$((retry + 1))
 		if [ "${retry}" -gt "${max_download_retries}" ]
 		then
-			finalize_job 2 "${max_download_retries} download attempts failed for URL '${list_path}'."
+			finalize_job 2 "${max_download_retries} download attempts failed for list '${print_id}'."
 		fi
 
-		log_msg -yellow "" "Processing job for URL '${list_path}' is sleeping for 5 seconds after failed download attempt."
+		log_msg -yellow "" "Processing job for list '${print_id}' is sleeping for 5 seconds after failed download attempt."
 		sleep 5 &
 		wait ${!}
+
+		if [ "${list_origin}" = DL ] && [ -n "${list_author}" ]
+		then
+			# cycle to the next mirror
+			next_mirror='' loop_prev_mirror=''
+			for mirror in ${mirrors}
+			do
+				[ "${loop_prev_mirror}" = "${curr_mirror}" ] && { next_mirror="${mirror}"; break; }
+				loop_prev_mirror="${mirror}"
+			done
+			curr_mirror="${next_mirror:-"${first_mirror}"}"
+		fi
 	done
 }
 
 gen_list_parts()
 {
-	local list_type preprocessed_line_count=0 preprocessed_line_count_human
+	local lists schedule_req local_list_path list_format list_type \
+		preprocessed_line_count=0 preprocessed_line_count_human \
+		invalid_urls bad_hagezi_urls
 
 	[ -n "${raw_block_lists}${dnsmasq_block_lists}${hosts_block_lists}" ] ||
 		log_msg -yellow "" "NOTE: No URLs specified for blocklist download."
@@ -668,22 +807,68 @@ gen_list_parts()
 	# Asynchronously download and process parts, allowlist must be processed separately and first
 	for list_types in allow "block ipv4_block"
 	do
-		local schedule_req=''
+		schedule_req=''
 		for list_type in ${list_types}
 		do
 			for list_format in ${ALL_LIST_FORMATS}
 			do
-				if eval "[ -n \"\${${list_format}_${list_type}_indexes}\" ]"
+				eval "lists=\"\${${list_format}_${list_type}_lists}\""
+				[ -n "${lists}" ] || continue
+
+				invalid_urls="$(printf %s "${lists}" | tr ' ' '\n' | grep -E '^(http[s]*://)*(www\.)*github\.com')" &&
+				{
+					reg_failure "Invalid URLs detected:" "${invalid_urls}"
+					return 1
+				}
+
+				if [ "${list_format}" = raw ]
 				then
+					bad_hagezi_urls="$(printf %s "${lists}" | tr ' ' '\n' | grep '/hagezi/.*/dnsmasq/')" &&
+					{
+						reg_failure "Following Hagezi URLs are in dnsmasq format and should be either changed to raw list URLs" \
+							"or moved to one of the 'dnsmasq_' config entries:" "${bad_hagezi_urls}"
+						return 1
+					}
+					case "${list_type}" in block|allow)
+						bad_hagezi_urls="$(printf %s "${lists}" | tr ' ' '\n' |
+							${SED_CMD} -n '/^hagezi:/n;/\/hagezi\//{/onlydomains\./d;/^$/d;p;}')"
+						[ -z "${bad_hagezi_urls}" ] ||
+						{
+							reg_failure "Following Hagezi URLs are missing the '-onlydomains' suffix in the filename:" \
+								"${bad_hagezi_urls}"
+							return 1
+						}
+					esac
+				fi
+
+				index=0
+				for list in ${lists}
+				do
+					index=$((index+1))
 					schedule_req=1
-					break
+					add2list "${list_format}_${list_type}_indexes" "${index}"
+					eval "${list_format}_${list_type}_${index}_origin=DL
+						${list_format}_${list_type}_${index}_print_id=\"${list}\""
+				done
+
+				eval "local_list_path=\"\${local_${list_type}list_path}\""
+				if [ "${list_format}" = raw ] && [ -n "${local_list_path}" ]
+				then
+					if [ ! -f "${local_list_path}" ]
+					then
+						reg_msg "No local ${list_type}list identified."
+					elif [ ! -s "${local_list_path}" ]
+					then
+						log_msg -warn "" "Local ${list_type}list file is empty."
+					else
+						index=$((index+1))
+						schedule_req=1
+						add2list "${list_format}_${list_type}_indexes" "${index}"
+						eval "raw_${list_type}_${index}_origin=LOCAL
+							raw_${list_type}_${index}_print_id=\"${local_list_path}\""
+					fi
 				fi
 			done
-
-			if eval "[ -f \"\${local_${list_type}list_path}\" ]"
-			then
-				schedule_req=1
-			fi
 		done
 
 		if [ -n "${schedule_req}" ]
@@ -1272,14 +1457,28 @@ check_active_blocklist()
 
 test_url_domains()
 {
-	local url urls all_urls='' list_type list_format dom IFS="${DEFAULT_IFS}"
+	local list lists list_author url mirror mirrors all_urls='' list_type list_format dom IFS="${DEFAULT_IFS}"
 	for list_type in block ipv4_block allow
 	do
 		for list_format in ${ALL_LIST_FORMATS}
 		do
-			eval "urls=\"\${${list_format}_${list_type}_urls}\""
-			[ -z "${urls}" ] && continue
-			all_urls="${all_urls}${url}${_NL_}"
+			eval "lists=\"\${${list_format}_${list_type}_lists}\""
+			[ -z "${lists}" ] && continue
+			for list in ${lists}
+			do
+				case "${list}" in
+					'') continue ;;
+					hagezi:*|oisd:*|stevenblack:*)
+						list_author="${list%%":"*}"
+						eval "mirrors=\"\${${list_author}_mirrors}\""
+						for mirror in ${mirrors}
+						do
+							eval "url=\"\${${list_author}_${mirror}_url}\""
+							[ -n "${url}" ] && all_urls="${all_urls:+"${all_urls}${_NL_}"}${url}"					
+						done ;;
+					*) all_urls="${all_urls:+"${all_urls}${_NL_}"}${list}"
+				esac
+			done
 		done
 	done
 	[ -n "${all_urls}" ] || return 0

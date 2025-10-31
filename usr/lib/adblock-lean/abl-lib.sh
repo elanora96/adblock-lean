@@ -12,22 +12,16 @@ RECOMMENDED_PKGS="gawk sed coreutils-sort"
 RECOMMENDED_UTILS="awk sed sort"
 ABL_CRON_SVC_PATH=/etc/init.d/cron
 ALL_PRESETS="mini small medium large large_relaxed"
-ALL_LIST_FORMATS="raw dnsmasq hosts"
-
-OISD_DL_URL="oisd.nl"
-OISD_LISTS="big small nsfw nsfw-small"
-
-HAGEZI_DL_URL="https://raw.githubusercontent.com/hagezi/dns-blocklists/main"
-HAGEZI_LISTS="anti.piracy blocklist-referral doh doh-vpn-proxy-bypass dyndns fake gambling gambling.medium gambling.mini hoster \
-light multi native.amazon native.apple native.huawei native.lgwebos native.oppo-realme native.roku native.samsung \
-native.tiktok native.tiktok.extended native.vivo native.winoffice native.xiaomi nosafesearch nsfw popupads \
-pro pro.mini pro.plus pro.plus.mini social tif tif.medium tif.mini ultimate ultimate.mini urlshortener whitelist-referral"
-
-STEVENBLACK_DL_URL="https://raw.githubusercontent.com/StevenBlack/hosts/master"
-STEVENBLACK_LISTS="base fakenews gambling porn social"
-
 
 ### UTILITY FUNCTIONS
+
+trim_spaces() {
+	local tr_in tr_out
+	eval "tr_in=\"\${$1}\""
+	tr_out="${tr_in%"${tr_in##*[! 	]}"}"
+	tr_out="${tr_out#"${tr_out%%[! 	]*}"}"
+	eval "$1=\"\${tr_out}\""
+}
 
 try_mv()
 {
@@ -59,7 +53,7 @@ get_file_size_human()
 
 get_pad()
 {
-	local spaces='                              ' \
+	local spaces='                                      ' \
 		pad_len=$(( ${3} - ${#2} ))
 	[ "$pad_len" -lt 0 ] && pad_len=0
 	eval "${1}=\"${spaces:1:${pad_len}}\""
@@ -816,63 +810,6 @@ get_def_preset()
 	:
 }
 
-# 1 - var name for output
-# 2 - list URL or short identifier
-# 3 - list format (raw|dnsmasq)
-get_list_url()
-{
-	local url_prefix='' url_suffix='' raw_suffix='' dnsmasq_suffix='' hosts_suffix='' \
-		res_url list_author list_name lists='' list_id_lc \
-		out_var="${1}" list_id="${2}" list_format="${3}"
-
-	are_var_names_safe "${out_var}" || return 1
-
-	case "${list_id}" in
-		*[A-Z]*) list_id_lc="$(printf '%s' "${list_id}" | tr 'A-Z' 'a-z')" ;;
-		*) list_id_lc="${list_id}"
-	esac
-	case "${list_id_lc}" in hagezi:*|oisd:*|stevenblack:*) ;; *)
-		eval "${out_var}=\"${list_id}\""
-		return 0
-	esac
-	list_id="${list_id_lc}"
-
-	eval "${out_var}=''"
-
-	case "${list_format}" in raw|dnsmasq|hosts) ;; *) reg_failure "Unexpected list format '${list_format}'."; return 1; esac
-	list_author="${list_id%%\:*}" list_name="${list_id#*\:}"
-	case "${list_author}" in
-		hagezi)
-			lists="${HAGEZI_LISTS}"
-			url_prefix="${HAGEZI_DL_URL}"
-			raw_suffix="/wildcard/${list_name}-onlydomains.txt"
-			dnsmasq_suffix="/dnsmasq/${list_name}.txt" ;;
-		oisd)
-			lists="${OISD_LISTS}"
-			url_prefix="https://${list_name}.${OISD_DL_URL}"
-			raw_suffix="/domainswild2"
-			dnsmasq_suffix="/dnsmasq" ;;
-		stevenblack)
-			lists="${STEVENBLACK_LISTS}"
-			url_prefix="${STEVENBLACK_DL_URL}"
-			case "${list_name}" in
-				base) hosts_suffix="/hosts" ;;
-				*) hosts_suffix="/alternates/${list_name}-only/hosts"
-			esac ;;
-		*)
-			reg_failure "Unknown list '${2}'."; return 1
-	esac
-
-	is_included "${list_name}" "${lists}" " " || { reg_failure "Unknown ${list_author} list '${2}'."; return 1; }
-
-	eval "url_suffix=\"\${${list_format}_suffix}\""
-	res_url="${url_prefix}${url_suffix}"
-	[ -n "${res_url}" ] || { reg_failure "Failed to construct URL for list identifier '${list_id}'."; return 1; }
-
-	: "${raw_suffix}" "${dnsmasq_suffix}" "${hosts_suffix}"
-	eval "${out_var}=\"${res_url}\""
-}
-
 # validate config and assign to variables
 #
 # 1 - path to file
@@ -1168,52 +1105,6 @@ parse_config()
 		reg_failure "Failed to parse config.${err_print}"
 		return 3
 	}
-
-	# Parse and Validate list options
-	local index list lists list_type list_format list_url invalid_urls bad_hagezi_urls
-	for list_type in block ipv4_block allow
-	do
-		for list_format in ${ALL_LIST_FORMATS}
-		do
-			eval "lists=\"\${${list_format}_${list_type}_lists}\""
-			[ -n "${lists}" ] || continue
-
-			invalid_urls="$(printf %s "${lists}" | tr ' ' '\n' | grep -E '^(http[s]*://)*(www\.)*github\.com')" &&
-			{
-				reg_failure "Invalid URLs detected:" "${invalid_urls}"
-				return 1
-			}
-
-			if [ "${list_format}" = raw ]
-			then
-				bad_hagezi_urls="$(printf %s "${lists}" | tr ' ' '\n' | grep '/hagezi/.*/dnsmasq/')" &&
-				{
-					reg_failure "Following Hagezi URLs are in dnsmasq format and should be either changed to raw list URLs" \
-						"or moved to one of the 'dnsmasq_' config entries:" "${bad_hagezi_urls}"
-					return 1
-				}
-				case "${list_type}" in block|allow)
-					bad_hagezi_urls="$(printf %s "${lists}" | tr ' ' '\n' | ${SED_CMD} -n '/^hagezi:/n;/\/hagezi\//{/onlydomains\./d;/^$/d;p;}')"
-					[ -z "${bad_hagezi_urls}" ] ||
-					{
-						reg_failure "Following Hagezi URLs are missing the '-onlydomains' suffix in the filename:" \
-							"${bad_hagezi_urls}"
-						return 1
-					}
-				esac
-			fi
-
-			index=1
-			for list in ${lists}
-			do
-				get_list_url list_url "${list}" "${list_format}" || return 1
-				add2list "${list_format}_${list_type}_indexes" "${index}"
-				eval "${list_format}_${list_type}_${index}_print_id=\"${list}\""
-				eval "${list_format}_${list_type}_${index}_url=\"${list_url}\""
-				index=$((index+1))
-			done
-		done
-	done
 
 	if [ -n "${migrate_keys}" ]
 	then
