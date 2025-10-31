@@ -199,7 +199,7 @@ adblock-lean supports specifying lists either by the complete **download URL** o
 ### Adding a new **Hagezi** list
 1. Pick one of Hagezi lists (all list names specified [here](/HAGEZI-LISTS.md). List descriptions are [here](https://github.com/hagezi/dns-blocklists)).
 2. Construct a list identifier in the format `hagezi:[list_name]`, for example: `hagezi:popupads`
-3. Add the list identifier to the option for **raw-formatted** blocklist or allowlist URLs in adblock-lean config file (depending on which list you picked) (e.g. a blocklist identifier should be added to the `raw_blocklists` config option)
+3. Add the list identifier to the option for **raw-formatted** blocklist or allowlist URLs in adblock-lean config file (depending on which list you picked) (e.g. a blocklist identifier should be added to the `raw_block_lists` config option)
 
 ### Adding a new **oisd** list
 1. Pick one of the available oisd lists: `small`, `big`, `nsfw-small`, `nsfw`. List descriptions are [here](https://oisd.nl/setup/adblock-lean).
