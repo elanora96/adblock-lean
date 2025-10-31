@@ -1470,17 +1470,15 @@ test_url_domains()
 					'') continue ;;
 					hagezi:*|oisd:*|stevenblack:*)
 						list_author="${list%%":"*}"
-						eval "mirrors=\"\${${list_author}_mirrors}\""
-						for mirror in ${mirrors}
-						do
-							eval "url=\"\${${list_author}_${mirror}_url}\""
-							[ -n "${url}" ] && all_urls="${all_urls:+"${all_urls}${_NL_}"}${url}"					
-						done ;;
+						eval "mirror=\"\${${list_author}_default_mirror}\""
+						eval "url=\"\${${list_author}_${mirror}_url}\""
+						[ -n "${url}" ] && all_urls="${all_urls:+"${all_urls}${_NL_}"}${url}" ;;
 					*) all_urls="${all_urls:+"${all_urls}${_NL_}"}${list}"
 				esac
 			done
 		done
 	done
+
 	[ -n "${all_urls}" ] || return 0
 
 	printf '%s\n' "${all_urls}" |
