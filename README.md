@@ -234,6 +234,7 @@ adblock-lean supports specifying lists either by the complete **download URL** o
 |`test_domains`                      | Domains used to test DNS resolution after loading the final blocklist                     |
 |`list_part_failed_action`           | Governs failed lists handling: 'SKIP' or 'STOP'                                           |
 |`max_download_retries`              | Maximum number of download retries for allowlist/blocklist parts                          |
+|`[hagezi|oisd|stevenblack]_default_mirror` | Default download mirror to use for lists by corresponding author (when list is specified by short identifier)  |
 |`min_good_line_count`               | Minimum number of good lines in final postprocessed blocklist                             |
 |`min_blocklist_part_line_count`     | Minimum number of lines of individual downloaded blocklist part                           |
 |`min_blocklist_ipv4_part_line_count`| Minimum number of lines of individual downloaded ipv4 blocklist part                      |
@@ -242,7 +243,7 @@ adblock-lean supports specifying lists either by the complete **download URL** o
 |`max_blocklist_file_size_KB`        | Maximim size in KB of combined, processed blocklist                                       |
 |`deduplication`                     | Whether to perform sorting and deduplication of entries                                   |
 |`compression_util`                  | Utility used to compress while processing, and final blocklists. Reduces memory usage. `none` disables compression |
-|`intermediate_compression_options`  | Options passed to the compression utility while processing. `-[n]` universally specifies compression level.        |
+|`intermediate_compression_options`  | Options passed to the compression utility while processing. `-[n]` universally specifies compression level.   |
 |`final_compression_options`         | Same as above but these options are passed to the compression utility when compressing the final blocklist.        |
 |`unload_blocklist_before_update`    | Unload current blocklist before update to save memory. 'auto' or 1/0 to enable/disable.    |
 |`boot_start_delay_s`                | Start delay in seconds when service is started from system boot                            |
