@@ -716,8 +716,11 @@ reg_action()
 
 reg_failure()
 {
-	log_msg -err "" "${1}"
-	failure_msg="${failure_msg}${1}${_NL_}"
+	local arg
+	log_msg -err "" "${@}"
+	for arg in "${@}"; do
+		failure_msg="${failure_msg:+"${failure_msg}${_NL_}"}${arg}"
+	done
 	luci_errors="${failure_msg}"
 }
 
