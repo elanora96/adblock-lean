@@ -1086,8 +1086,8 @@ init_command()
 	ABL_CMD="${1}"
 	local config_req='' work_dir_req='' init_action_msg='' process_vars_req=''
 
-	DO_DIALOGS=
-	[ -z "${ABL_LUCI_SOURCED}" ] && [ -z "${APPROVE_UPD_CHANGES}" ] && [ "${MSGS_DEST}" = "/dev/tty" ] && DO_DIALOGS=1
+	[ -z "${DO_DIALOGS}" ] && [ -z "${ABL_LUCI_SOURCED}" ] && [ -z "${APPROVE_UPD_CHANGES}" ] && [ "${MSGS_DEST}" = "/dev/tty" ] && \
+		DO_DIALOGS=1
 
 	if [ -z "${ABL_NOTRAPS}" ]
 	then
@@ -1680,7 +1680,7 @@ stop()
 
 	init_command stop || { FAIL_STOP_REQ=''; exit 1; }
 
-	reg_msg "Removing any adblock-lean blocklist files."
+	reg_msg "" "Removing any adblock-lean blocklist files."
 	rm -f "${ABL_RUN_DIR}/prev_blocklist"*
 	clean_dnsmasq_dir || stop_rc=1
 	restart_dnsmasq -nostop &&
@@ -1845,7 +1845,7 @@ update()
 			U) force_upd_channel=$OPTARG force_update=1 ;;
 			W) req_ver=$OPTARG force_update=1 ;;
 			f) force_update=1 libs_req='' ;;
-			y) export APPROVE_UPD_CHANGES=1 DO_DIALOGS='' ;;
+			y) export APPROVE_UPD_CHANGES=1 DO_DIALOGS=0 ;;
 			i) IGNORE_CACHE=1 ;; # global var
 			*) unexp_arg "$OPTARG"; return 1
 		esac
@@ -1928,7 +1928,7 @@ update()
 
 	log_msg -green "" "adblock-lean has been updated to version '${upd_ver}'."
 
-	if [ -n "${DO_DIALOGS}" ]
+	if [ "${DO_DIALOGS}" = 1 ]
 	then
 		print_msg "" "Start adblock-lean now? (y|n)"
 		pick_opt "y|n"
@@ -1960,7 +1960,7 @@ uninstall()
 
 	rm_cron_job
 
-	if [ -n "${DO_DIALOGS}" ]
+	if [ "${DO_DIALOGS}" = 1 ]
 	then
 		print_msg "" "Delete the config directory ${ABL_CONFIG_DIR}? (y|n)"
 		pick_opt "y|n"
