@@ -1090,12 +1090,12 @@ parse_config()
 				"bad_val_keys=\"" bad_val_keys "\" " \
 				"\n" migrate_opts
 			exit rv
-		}'
-	)" 2> "${awk_err_file}" && [ ! -s "${awk_err_file}" ] && [ ! -s "${parser_err_file}" ] ||
+		}' 2>"${awk_err_file}"
+	)" && [ ! -s "${awk_err_file}" ] && [ ! -s "${parser_err_file}" ] ||
 	{
 		local awk_rv=${?} inval_entry=''
 		[ -s "${awk_err_file}" ] && reg_failure "awk errors encountered while parsing config:${_NL_}$(cat "${awk_err_file}")"
-		[ -s "${parser_err_file}" ] && reg_failure "Parser errors encountered while parsing config:${_NL_}$(cat "${parser_err_file}")"
+		[ -s "${parser_err_file}" ] && reg_failure "$(cat "${parser_err_file}")"
 		[ -s "${inval_entry_file}" ] && inval_entry=": $(cat "${inval_entry_file}")"
 
 		case "${awk_rv}" in
