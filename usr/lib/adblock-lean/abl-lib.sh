@@ -617,12 +617,11 @@ print_def_config()
 
 	# One or more *dnsmasq* format [blocklist]/[ipv4 blocklist]/[allowlist] URLs and/or short list identifiers separated by spaces
 	dnsmasq_block_lists="" @ string
-	dnsmasq_ipv4_block_lists="" @ string
 	dnsmasq_allow_lists="" @ string
+	dnsmasq_ipv4_block_lists="" @ string
 
-	# One or more *hosts* format blocklist/allowlist URLs and/or short list identifiers separated by spaces
+	# One or more *hosts* format blocklist URLs and/or short list identifiers separated by spaces
 	hosts_block_lists="" @ string
-	hosts_allow_lists="" @ string
 
 	# Path to optional local *raw domain* allowlist/blocklist files in the form:
 	# site1.com
