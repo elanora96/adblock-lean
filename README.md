@@ -199,17 +199,17 @@ adblock-lean supports specifying lists either by the complete **download URL** o
 ### Adding a new **Hagezi** list
 1. Pick one of Hagezi lists (all list names specified [here](/HAGEZI-LISTS.md). List descriptions are [here](https://github.com/hagezi/dns-blocklists)).
 2. Construct a list identifier in the format `hagezi:[list_name]`, for example: `hagezi:popupads`
-3. Add the list identifier to the option for **raw-formatted** blocklist or allowlist URLs in adblock-lean config file (depending on which list you picked) (e.g. a blocklist identifier should be added to the `raw_block_lists` config option)
+3. Add the list identifier to the option for **raw-formatted** blocklists or allowlists in the adblock-lean config file (depending on which list you picked) (e.g. a blocklist identifier should be added to the `raw_block_lists` config option)
 
 ### Adding a new **oisd** list
 1. Pick one of the available oisd lists: `small`, `big`, `nsfw-small`, `nsfw`. List descriptions are [here](https://oisd.nl/setup/adblock-lean).
 2. Construct a list identifier in the format `oisd:[list_name]`, for example: `oisd:big`
-3. Add the list identifier to the option for **raw-formatted** blocklist or allowlist URLs in adblock-lean config file (depending on which list you picked) (e.g. a blocklist identifier should be added to the `raw_block_lists` config option)
+3. Add the list identifier to the option for **raw-formatted** blocklists or allowlists in the adblock-lean config file (depending on which list you picked) (e.g. a blocklist identifier should be added to the `raw_block_lists` config option)
 
 ### Adding a new **Steven Black** list
 1. Pick one of the available stevenblack lists: `base`, `fakenews`, `gambling`, `porn`, `social`. List descriptions are [here](https://github.com/StevenBlack/hosts). Note that despite Steven Black offering almost any possible unified combination of these lists, adblock-lean only supports short list identifiers for these 5 lists. `base` is the main Steven Black's hosts list.
 2. Construct a list identifier in the format `stevenblack:[list_name]`, for example: `stevenblack:base`
-3. Add the list identifier to the option for **hosts-formatted** blocklist or allowlist URLs in adblock-lean config file (depending on which list you picked) (e.g. a blocklist identifier should be added to the `hosts_block_lists` config option)
+3. Add the list identifier to the `hosts_block_lists` config option in the adblock-lean config file
 
 ### Adding another list
 - Any other raw or dnsmasq format lists of your choice can be used by specifying its download URL, but make sure the list conforms to [supported formats](#supported-formats).
