@@ -228,7 +228,6 @@ adblock-lean supports specifying lists either by the complete **download URL** o
 |`dnsmasq_ipv4_block_lists`          | One or more dnsmasq format ipv4 blocklist URLs to download and process                    |
 |`dnsmasq_allow_lists`               | One or more dnsmasq format allowlist URLs to download and process                         |
 |`hosts_block_lists`                 | One or more dnsmasq format blocklist URLs to download and process                         |
-|`hosts_allow_lists`                 | One or more dnsmasq format allowlist URLs to download and process                         |
 |`local_allowlist_path`              | Path to local allowlist (included domains will not be blocked)                            |
 |`local_blocklist_path`              | Path to local blocklist (included domains will be blocked)                                |
 |`test_domains`                      | Domains used to test DNS resolution after loading the final blocklist                     |
