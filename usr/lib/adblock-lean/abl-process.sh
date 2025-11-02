@@ -553,7 +553,13 @@ process_list_part()
 		${SED_CMD} -nE '
 			/^\s*(0[.]0[.]0[.]0|::)\s+(0[.]0[.]0[.]0|::)\s*$/d;
 			s/^\s*(0[.]0[.]0[.]0|::)\s+([^. 	]+([.][^. 	]+)+)$/\2/p
-		'
+		' |
+		# subdomains compression - slightly improved variant of code from adblock by Dirk Brenken
+		${AWK_CMD} -F "." '{for(f=NF;f>1;f--)printf "%s.",$f;print $1}' | # invert labels order
+		${SORT_CMD} |
+		${SED_CMD} '/^$/d' |
+		${AWK_CMD} '{if(NR==1){DOM=$0}; while(getline){if(index($0,DOM".")==0){print DOM;DOM=$0}}; print DOM}' | # compress subdomains
+		${AWK_CMD} -F "." '{for(f=NF;f>1;f--)printf "%s.",$f;print $1}' # invert labels order back
 	}
 
 	case_conv() { tr 'A-Z' 'a-z'; }
