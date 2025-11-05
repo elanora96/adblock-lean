@@ -1,9 +1,9 @@
 #!/bin/sh
-# shellcheck disable=SC3043,SC3003,SC3001,SC3020,SC3044,SC2016,SC3057,SC3019
+# shellcheck disable=SC3043,SC3003,SC3001,SC3020,SC3044,SC2016,SC3057,SC3019,SC2018,SC2019
 
 # silence shellcheck warnings
 : "${blue:=}" "${purple:=}" "${green:=}" "${red:=}" "${yellow:=}" "${n_c:=}"
-: "${blocklist_urls:=}" "${test_domains:=}" "${whitelist_mode:=}" "${compression_util:=}"
+: "${raw_block_lists:=}" "${test_domains:=}" "${whitelist_mode:=}" "${compression_util:=}"
 : "${luci_cron_job_creation_failed}" "${luci_pkgs_install_failed}" "${luci_tarball_url}"
 : "${DNSMASQ_CONF_DIRS}"
 
@@ -13,8 +13,15 @@ RECOMMENDED_UTILS="awk sed sort"
 ABL_CRON_SVC_PATH=/etc/init.d/cron
 ALL_PRESETS="mini small medium large large_relaxed"
 
-
 ### UTILITY FUNCTIONS
+
+trim_spaces() {
+	local tr_in tr_out
+	eval "tr_in=\"\${$1}\""
+	tr_out="${tr_in%"${tr_in##*[! 	]}"}"
+	tr_out="${tr_out#"${tr_out%%[! 	]*}"}"
+	eval "$1=\"\${tr_out}\""
+}
 
 try_mv()
 {
@@ -39,15 +46,28 @@ cnt_lines()
 
 get_file_size_human()
 {
-	bytes2human "$(du -b "$1" | ${AWK_CMD} '{print $1}')"
+	local gfs_res
+	bytes2human gfs_res "$(du -b "$1" | ${AWK_CMD} '{print $1}')"
+	printf '%s\n' "$gfs_res"
+}
+
+get_pad()
+{
+	local spaces='                                      ' \
+		pad_len=$(( ${3} - ${#2} ))
+	[ "$pad_len" -lt 0 ] && pad_len=0
+	eval "${1}=\"${spaces:1:${pad_len}}\""
 }
 
 # converts unsigned integer to [xB|xKiB|xMiB|xGiB|xTiB]
 # if result is not an integer, outputs up to 2 digits after decimal point
-# 1 - int
+# 1 - output var name
+# 2 - int
+# 3 - (optional) '-p' to add padding
 bytes2human()
 {
-	local i="${1:-0}" s=0 d=0 m=1024 fp='' S=''
+	local i="${2:-0}" s=0 d=0 m=1024 fp='' S='' bh_res='' pad='' align=''
+	[ "${3}" = '-p' ] && align=1
 	case "$i" in *[!0-9]*) reg_failure "bytes2human: Invalid unsigned integer '$i'."; return 1; esac
 	for S in B KiB MiB GiB TiB
 	do
@@ -56,11 +76,24 @@ bytes2human()
 	done
 	d=$((d % m * 100 / m))
 	case $d in
-		0) printf "%s %s\n" "$i" "$S"; return ;;
+		0)
+			if [ -n "${align}" ]
+			then
+				i="${i}.00"
+				[ "${S}" = B ] && S="  B"
+			fi
+			bh_res="$i $S" ;;
 		[1-9]) fp="02" ;;
-		*0) d=${d%0}; fp="01"
+		*0)
+			if [ -n "${align}" ]; then
+				fp="02"
+			else
+				d=${d%0} fp="01"
+			fi
 	esac
-	printf "%s.%${fp}d %s\n" "$i" "$d" "$S"
+	: "${bh_res:="$(printf "%s.%${fp}d %s\n" "$i" "$d" "$S")"}"
+	[ -n "${align}" ] && get_pad pad "${bh_res}" 10
+	eval "${1}=\"${pad}${bh_res}\""
 }
 
 # 1 - var name for output
@@ -100,7 +133,7 @@ suggest_addnmounts()
 		if [ -n "${missing_addnmounts}" ]
 		then
 			log_msg -yellow "" "Detected missing addnmount entries in /etc/config/dhcp for paths: ${missing_addnmounts}"
-			if [ -n "${DO_DIALOGS}" ] && [ -z "${force_fix}" ]
+			if [ "${DO_DIALOGS}" = 1 ] && [ -z "${force_fix}" ]
 			then
 				print_msg -blue "" "Create missing addnmount entries automatically? (y|n)"
 				pick_opt "y|n" || return 1
@@ -207,8 +240,8 @@ do_setup()
 		local recomm_pkgs_regex
 		recomm_pkgs_regex="$(printf %s "$RECOMMENDED_PKGS" | tr ' ' '|')"
 		local pkgs2install='' missing_packages='' missing_utils='' missing_utils_print='' util \
-			installed_pkgs='' util_size_B utils_size_B=0 awk_size_B sort_size_B sed_size_B \
-			free_space_B='' free_space_KB mount_point
+			installed_pkgs='' util_size_B='' util_size_human='' utils_size_B=0 utils_size_human='' awk_size_B sort_size_B sed_size_B \
+			free_space_human='' free_space_B='' free_space_KB mount_point
 
 		: "${awk_size_B:=1048576}" "${sort_size_B:=122880}" "${sed_size_B:=153600}"
 
@@ -218,7 +251,7 @@ do_setup()
 		for util in ${RECOMMENDED_UTILS}
 		do
 			case "${installed_pkgs}" in
-				*"${util}"*) log_msg -green "GNU ${util} is already installed." ;;
+				*"${util}"*) reg_msg -green "GNU ${util} is already installed." ;;
 				*)
 					add2list missing_utils "${util}" " "
 					add2list missing_utils_print "${blue}GNU ${util}${n_c}" ", "
@@ -236,21 +269,25 @@ do_setup()
 				*) free_space_B=$((free_space_KB*1024))
 			esac
 
-			if [ -n "${DO_DIALOGS}" ]
+			if [ "${DO_DIALOGS}" = 1 ]
 			then
 				print_msg "" "For improved performance while processing the lists, it is recommended to install ${missing_utils_print}." \
 					"Corresponding packages are: ${missing_packages}."
 				[ -n "${free_space_B}" ] &&
-					print_msg "" "Available free space at mount point '${mount_point}': ${yellow}$(bytes2human "${free_space_B}")${n_c}." ""
+				{
+					bytes2human free_space_human "${free_space_B}"
+					print_msg "" "Available free space at mount point '${mount_point}': ${yellow}${free_space_human}${n_c}." ""
+				}
 			fi
 
 			for util in ${missing_utils}
 			do
 				REPLY=n
-				if [ -n "${DO_DIALOGS}" ]
+				if [ "${DO_DIALOGS}" = 1 ]
 				then
 					eval "util_size_B=\"\${${util}_size_B}\""
-					print_msg "Would you like to install ${blue}GNU ${util}${n_c} automatically? Installed size: ${yellow}$(bytes2human "${util_size_B}")${n_c}. (y|n)"
+					bytes2human util_size_human "${util_size_B}"
+					print_msg "Would you like to install ${blue}GNU ${util}${n_c} automatically? Installed size: ${yellow}${util_size_human}${n_c}. (y|n)"
 					pick_opt "y|n" || return 1
 				elif [ -n "${luci_install_packages}" ]
 				then
@@ -269,10 +306,11 @@ do_setup()
 		if [ -n "${pkgs2install}" ]
 		then
 			REPLY=n
-			if [ -n "${DO_DIALOGS}" ]
+			if [ "${DO_DIALOGS}" = 1 ]
 			then
+				bytes2human utils_size_human "${utils_size_B}"
 				print_msg "" "Selected packages: ${blue}${pkgs2install% }${n_c}" \
-					"Total installed size: ${yellow}$(bytes2human ${utils_size_B})${n_c}." \
+					"Total installed size: ${yellow}${utils_size_human}${n_c}." \
 					"Proceed with packages installation? (y|n)"
 				pick_opt "y|n"
 			elif [ -n "${luci_install_packages}" ]
@@ -307,17 +345,17 @@ do_setup()
 	# make the script executable
 	if [ ! -x "${ABL_SERVICE_PATH}" ]
 	then
-		log_msg -purple "" "Making ${ABL_SERVICE_PATH} executable."
+		reg_msg -purple "" "Making ${ABL_SERVICE_PATH} executable."
 		chmod +x "${ABL_SERVICE_PATH}" || { reg_failure "Failed to make '${ABL_SERVICE_PATH}' executable."; return 1; }
 	else
-		log_msg -green "" "${ABL_SERVICE_PATH} is already executable."
+		reg_msg -green "" "${ABL_SERVICE_PATH} is already executable."
 	fi
 
 	REPLY=n
 
 	if [ -s "${ABL_CONFIG_FILE}" ]
 	then
-		if [ -n "${DO_DIALOGS}" ]
+		if [ "${DO_DIALOGS}" = 1 ]
 		then
 			print_msg "" "Existing config file found." "Generate [n]ew config or use [e]xisting config? (n|e)"
 			pick_opt 'n|e' || return 1
@@ -351,7 +389,7 @@ do_setup()
 	detect_processing_utils || return 1
 	check_addnmounts
 	case ${?} in
-		0) log_msg -green "" "Found existing dnsmasq addnmount entries." ;;
+		0) reg_msg -green "" "Found existing dnsmasq addnmount entries." ;;
 		1) return 5 ;;
 		2|3) create_addnmounts || return 5
 	esac
@@ -362,11 +400,11 @@ do_setup()
 			install_packages && luci_pkgs_install_failed=
 			detect_main_utils -f ;;
 		*)
-			log_msg -yellow "" "Can not automatically check and install recommended packages (${RECOMMENDED_PKGS})." \
+			reg_msg -yellow "" "Can not automatically check and install recommended packages (${RECOMMENDED_PKGS})." \
 				"Consider to check for their presence and install if needed."
 	esac
 
-	if [ -n "${DO_DIALOGS}" ]
+	if [ "${DO_DIALOGS}" = 1 ]
 	then
 		print_msg "" "${purple}Setup is complete.${n_c}" "" "Start adblock-lean now? (y|n)"
 		pick_opt "y|n" || return 1
@@ -381,36 +419,36 @@ do_setup()
 mk_preset_arrays()
 {
 	# quasi-arrays for presets
-	# urls_cnt - urls count, cnt - target elements count, mem - memory in MB
-	mini_urls="hagezi:pro.mini" \
-		mini_urls_cnt=1 mini_cnt=85000 mini_mem=64
-	small_urls="hagezi:pro" \
-		small_urls_cnt=1 small_cnt=250000 small_mem=128
-	medium_urls="hagezi:pro hagezi:tif.mini" \
-		medium_urls_cnt=2 medium_cnt=350000 medium_mem=256
-	large_urls="hagezi:pro hagezi:tif" \
-		large_urls_cnt=2 large_cnt=1200000 large_mem=512
-	large_relaxed_urls="hagezi:pro hagezi:tif" \
-		large_relaxed_urls_cnt=2 large_relaxed_cnt=1200000 large_relaxed_mem=1024 large_relaxed_coeff=2
+	# lists_cnt - urls count, cnt - target elements count, mem - memory in MB
+	mini_lists="hagezi:pro.mini" \
+		mini_lists_cnt=1 mini_cnt=85000 mini_mem=64
+	small_lists="hagezi:pro" \
+		small_lists_cnt=1 small_cnt=250000 small_mem=128
+	medium_lists="hagezi:pro hagezi:tif.mini" \
+		medium_lists_cnt=2 medium_cnt=350000 medium_mem=256
+	large_lists="hagezi:pro hagezi:tif" \
+		large_lists_cnt=2 large_cnt=1200000 large_mem=512
+	large_relaxed_lists="hagezi:pro hagezi:tif" \
+		large_relaxed_lists_cnt=2 large_relaxed_cnt=1200000 large_relaxed_mem=1024 large_relaxed_coeff=2
 }
 
-# sets $blocklist_urls, $min_good_line_count, $max_blocklist_file_size_KB, $max_file_part_size_KB
+# sets $raw_block_lists, $min_good_line_count, $max_blocklist_file_size_KB, $max_file_part_size_KB
 # requires preset vars to be set
 # 1 - mini|small|medium|large|large_relaxed
 # 2 - (optional) '-d' to print the description
 # 2 - (optional) '-n' to print nothing (only assign values to vars)
 set_preset_vars()
 {
-	local val field mem tgt_entries_cnt tgt_entries_cnt_human lim_coeff urls_cnt
+	local val field mem tgt_entries_cnt tgt_entries_cnt_human lim_coeff lists_cnt
 
 	eval "mem=\"\${${1}_mem}\"
-		urls_cnt=\"\${${1}_urls_cnt}\"
+		lists_cnt=\"\${${1}_lists_cnt}\"
 		tgt_entries_cnt=\"\${${1}_cnt}\"
 		lim_coeff=\"\${${1}_coeff}\"
-		blocklist_urls=\"\${${1}_urls}\""
+		raw_block_lists=\"\${${1}_lists}\""
 	: "${lim_coeff:=1}" "${mem:=???}"
 
-	do_calculate_limits -n "${tgt_entries_cnt}" "${urls_cnt}" "${lim_coeff}" || return 1
+	do_calculate_limits -n "${tgt_entries_cnt}" "${lists_cnt}" "${lim_coeff}" || return 1
 
 	[ "${2}" = '-d' ] && print_msg "" "${purple}${1}${n_c}: recommended for devices with ${mem} MB of memory."
 
@@ -418,7 +456,7 @@ set_preset_vars()
 	then
 		int2human tgt_entries_cnt_human "${tgt_entries_cnt}"
 		print_msg "${blue}Elements count:${n_c} ~${tgt_entries_cnt_human}"
-		for field in blocklist_urls max_file_part_size_KB max_blocklist_file_size_KB min_good_line_count
+		for field in raw_block_lists max_file_part_size_KB max_blocklist_file_size_KB min_good_line_count
 		do
 			eval "val=\"\${${field}}\""
 			print_msg "${blue}${field}${n_c}=\"${val}\""
@@ -449,11 +487,11 @@ do_calculate_limits()
 		:
 	}
 
-	local urls_cnt val field tgt_entries_cnt tgt_entries_cnt_human lim_coeff final_entry_size_B source_entry_size_B noprint=''
+	local lists_cnt val field tgt_entries_cnt tgt_entries_cnt_human lim_coeff final_entry_size_B source_entry_size_B noprint=''
 
 	[ "${1}" = '-n' ] && { noprint=1; shift; }
 
-	local tgt_entries_cnt="${1}" urls_cnt="${2}" lim_coeff="${3:-1}"
+	local tgt_entries_cnt="${1}" lists_cnt="${2}" lim_coeff="${3:-1}"
 
 	if [ -z "${noprint}" ]
 	then
@@ -475,9 +513,9 @@ do_calculate_limits()
 		while :
 		do
 			print_msg "How many URLs are used?"
-			read -r urls_cnt
-			case "${urls_cnt}" in ''|*[!0-9]*)
-				print_msg "Invalid input '${urls_cnt}'. Please enter a number."
+			read -r lists_cnt
+			case "${lists_cnt}" in ''|*[!0-9]*)
+				print_msg "Invalid input '${lists_cnt}'. Please enter a number."
 				continue
 			esac
 			break
@@ -487,13 +525,13 @@ do_calculate_limits()
 			reg_failure "calculate_limits: Invalid entries count '${tgt_entries_cnt}'."; return 1 ;;
 		esac
 
-		case "${urls_cnt}" in ''|*[!0-9]*)
-			reg_failure "calculate_limits: Invalid URLs count '${urls_cnt}'."
+		case "${lists_cnt}" in ''|*[!0-9]*)
+			reg_failure "calculate_limits: Invalid URLs count '${lists_cnt}'."
 			return 1
 		esac
 	fi
 
-	[ "${urls_cnt}" -eq 0 ] && { reg_failure "calculate_limits: Invalid URLs count '${urls_cnt}'."; return 1; }
+	[ "${lists_cnt}" -eq 0 ] && { reg_failure "calculate_limits: Invalid URLs count '${lists_cnt}'."; return 1; }
 
 
 	# Default values calculation:
@@ -510,7 +548,7 @@ do_calculate_limits()
 	max_blocklist_file_size_KB=$(( (tgt_entries_cnt*final_entry_size_B*lim_coeff*125)/(1024*100) + 1 ))
 	reasonable_round max_blocklist_file_size_KB || return 1
 
-	if [ "${urls_cnt}" -eq 1 ]
+	if [ "${lists_cnt}" -eq 1 ]
 	then
 		max_file_part_size_KB=${max_blocklist_file_size_KB}
 	else
@@ -571,16 +609,19 @@ print_def_config()
 	# including subdomains of allowed domains
 	whitelist_mode="0" @ 0|1
 
-	# One or more *raw domain* format blocklist/ipv4 blocklist/allowlist URLs and/or short list identifiers separated by spaces
+	# One or more *raw domain* format [blocklist]/[ipv4 blocklist]/[allowlist] URLs and/or short list identifiers separated by spaces
 	# Short list identifiers have the form of [hagezi|oisd]:[list_name]. Examples: hagezi:tif.mini, oisd:big
-	blocklist_urls="${blocklist_urls}" @ string
-	blocklist_ipv4_urls="" @ string
-	allowlist_urls="" @ string
+	raw_block_lists="${raw_block_lists}" @ string
+	raw_allow_lists="" @ string
+	raw_ipv4_block_lists="" @ string
 
-	# One or more *dnsmasq format* domain blocklist/ipv4 blocklist/allowlist URLs separated by spaces
-	dnsmasq_blocklist_urls="" @ string
-	dnsmasq_blocklist_ipv4_urls="" @ string
-	dnsmasq_allowlist_urls="" @ string
+	# One or more *dnsmasq* format [blocklist]/[ipv4 blocklist]/[allowlist] URLs and/or short list identifiers separated by spaces
+	dnsmasq_block_lists="" @ string
+	dnsmasq_allow_lists="" @ string
+	dnsmasq_ipv4_block_lists="" @ string
+
+	# One or more *hosts* format blocklist URLs and/or short list identifiers separated by spaces
+	hosts_block_lists="" @ string
 
 	# Path to optional local *raw domain* allowlist/blocklist files in the form:
 	# site1.com
@@ -604,12 +645,20 @@ print_def_config()
 	# Maximum number of download retries
 	max_download_retries="3" @ integer
 
+	# Default download mirrors.
+	# Hagezi mirror: 'github' or 'gitlab'
+	hagezi_default_mirror="github" @ github|gitlab
+	# oisd mirror: 'oisd' or 'github'
+	oisd_default_mirror="oisd" @ oisd|github
+	# Steven Black mirror: 'github' or 'sbc_io' for sbc.io
+	stevenblack_default_mirror="github" @ github|sbc_io
+
 	# Minimum number of good lines in final postprocessed blocklist
 	min_good_line_count="${min_good_line_count}" @ integer
 
 	# Mininum number of lines of any individual downloaded part
 	min_blocklist_part_line_count="1" @ integer
-	min_blocklist_ipv4_part_line_count="1" @ integer
+	min_ipv4_blocklist_part_line_count="1" @ integer
 	min_allowlist_part_line_count="1" @ integer
 
 	# Maximum size of any individual downloaded blocklist part
@@ -665,15 +714,16 @@ print_def_config()
 # generates config
 do_gen_config()
 {
-	local cnt totalmem preset
+	local cnt totalmem totalmem_human preset
 
-	if [ -n "${DO_DIALOGS}" ] && [ -z "${luci_preset}" ]
+	if [ "${DO_DIALOGS}" = 1 ] && [ -z "${luci_preset}" ]
 	then
 		mk_preset_arrays
 		get_def_preset preset totalmem || print_msg "Skipping automatic preset recommendation."
 		if [ -n "${preset}" ]
 		then
-			print_msg "" "Based on the total usable memory of this device ($(bytes2human $((totalmem*1024)) )), the recommended preset is '${purple}${preset}${n_c}':"
+			bytes2human totalmem_human $((totalmem*1024))
+			print_msg "" "Based on the total usable memory of this device (${totalmem_human}), the recommended preset is '${purple}${preset}${n_c}':"
 			set_preset_vars "${preset}" || return 1
 			print_msg "" "[C]onfirm this preset or [p]ick another preset?"
 			pick_opt "c|p"
@@ -697,13 +747,13 @@ do_gen_config()
 	else
 		# determine preset for luci
 		case "${luci_preset}" in
-			''|auto) get_def_preset preset totalmem || { log_msg "Falling back to preset 'small'."; preset=small; } ;;
+			''|auto) get_def_preset preset totalmem || { reg_msg "Falling back to preset 'small'."; preset=small; } ;;
 			*) preset="${luci_preset}"
 		esac
 	fi
 
 	is_included "${preset}" "${ALL_PRESETS}" " " || { reg_failure "Invalid preset '${preset}'."; return 1; }
-	log_msg -blue "Selected preset '${preset}'."
+	reg_msg -blue "Selected preset '${preset}'."
 
 	select_dnsmasq_instances -n || { reg_failure "Failed to detect dnsmasq instances or no dnsmasq instances are running."; return 1; }
 
@@ -712,7 +762,7 @@ do_gen_config()
 	local def_schedule="0 5 * * *" def_schedule_desc="daily at 5am (5 o'clock at night)"
 
 	REPLY=n
-	if [ -n "${DO_DIALOGS}" ]
+	if [ "${DO_DIALOGS}" = 1 ]
 	then
 		print_msg "" "${purple}Cron job configuration:${n_c}" \
 			"A cron job can be created to enable automatic list updates." \
@@ -733,7 +783,7 @@ do_gen_config()
 	fi
 	[ "${REPLY}" = n ] && cron_schedule=disable
 
-	reg_action -purple "Generating new default config for adblock-lean from preset '${preset}'." || return 1
+	reg_action -nolog -purple "Generating new default config for adblock-lean from preset '${preset}'." || return 1
 	write_config "$(print_def_config -p "${preset}" -n "${DNSMASQ_INDEXES}" -c "${DNSMASQ_CONF_DIRS}")" || return 1
 
 	:
@@ -806,6 +856,13 @@ parse_config()
 	MIGRATE_OPTS='
 		DNSMASQ_INDEX=DNSMASQ_INDEXES
 		DNSMASQ_CONF_D=DNSMASQ_CONF_DIRS
+		blocklist_urls=raw_block_lists
+		allowlist_urls=raw_allow_lists
+		blocklist_ipv4_urls=raw_ipv4_block_lists
+		dnsmasq_blocklist_urls=dnsmasq_block_lists
+		dnsmasq_blocklist_ipv4_urls=dnsmasq_ipv4_block_lists
+		dnsmasq_allowlist_urls=dnsmasq_allow_lists
+		min_blocklist_ipv4_part_line_count=min_ipv4_blocklist_part_line_count
 	'
 	local IFS="${_NL_}" migrate_opts_tmp='' opt
 	# remove leading and trailing spaces/tabs
@@ -852,8 +909,10 @@ parse_config()
 	# extract valid values from default config
 	valid_lines="$(print_def_config -d | ${SED_CMD} "${sed_conf_san_exp}")"
 	# parse config
-	local parser_error_file="${ABL_CONF_STAGING_DIR}/parser_error" inval_entry_file="${ABL_CONF_STAGING_DIR}/inval_entry"
-	rm -f "${parser_error_file}" "${inval_entry_file}"
+	local parser_err_file="${ABL_CONF_STAGING_DIR}/parser_err" \
+		awk_err_file="${ABL_CONF_STAGING_DIR}/awk_err" \
+		inval_entry_file="${ABL_CONF_STAGING_DIR}/inval_entry"
+	rm -f "${parser_err_file}" "${awk_err_file}" "${inval_entry_file}"
 	for entry_type in unexp bad_val missing dup migrate
 	do
 		rm -f "${ABL_CONF_STAGING_DIR}/${entry_type}_entries"
@@ -887,10 +946,10 @@ parse_config()
 				def_lines_arr[ind]=def_lines_arr[ind]
 				# validate default config line
 				n=split(def_lines_arr[ind],def_line_parts,"[=@]") # split into key, value, allowed values
-				if (n!=3) {print "Invalid line in default config: " q def_lines_arr[ind] q "." > "/dev/stderr"; rv=1; exit}
+				if (n!=3) {print "Invalid line in default config: " q def_lines_arr[ind] q "." > A"/parser_err"; rv=1; exit}
 				for (i in def_line_parts) {
 					if (! def_line_parts[i]) {
-						print "Invalid line in default config: " q def_lines_arr[ind] q " is missing the " line_comp[i] "." > "/dev/stderr"
+						print "Invalid line in default config: " q def_lines_arr[ind] q " is missing the " line_comp[i] "." > A"/parser_err"
 						rv=1
 						exit
 					}
@@ -979,7 +1038,7 @@ parse_config()
 					migrated_keys_arr[new_key]
 					migrate_keys=migrate_keys $1 " "
 					migrated_keys=migrated_keys new_key " "
-					migrate_opts=migrate_opts "MIGRATE_" new_key "=" val "\n"
+					migrate_opts=migrate_opts "MIGRATE_" new_key "=\"" val "\"\n"
 					print $0 >> A"/migrate_entries"
 					next
 				}
@@ -1028,13 +1087,14 @@ parse_config()
 				"unexp_keys=\"" unexp_keys "\" " \
 				"dup_keys=\"" dup_keys "\" " \
 				"bad_val_keys=\"" bad_val_keys "\" " \
-				migrate_opts
+				"\n" migrate_opts
 			exit rv
-		}'
-	)" 2> "${parser_error_file}" && [ ! -s "${parser_error_file}" ] ||
+		}' 2>"${awk_err_file}"
+	)" && [ ! -s "${awk_err_file}" ] && [ ! -s "${parser_err_file}" ] ||
 	{
 		local awk_rv=${?} inval_entry=''
-		[ -s "${parser_error_file}" ] && reg_failure "awk errors encountered while parsing config:${_NL_}$(cat "${parser_error_file}")"
+		[ -s "${awk_err_file}" ] && reg_failure "awk errors encountered while parsing config:${_NL_}$(cat "${awk_err_file}")"
+		[ -s "${parser_err_file}" ] && reg_failure "$(cat "${parser_err_file}")"
 		[ -s "${inval_entry_file}" ] && inval_entry=": $(cat "${inval_entry_file}")"
 
 		case "${awk_rv}" in
@@ -1047,11 +1107,11 @@ parse_config()
 	}
 
 	local err_print=''
-	rm -f "${parser_error_file}"
+	rm -f "${parser_err_file}"
 
-	eval "${parse_vars}" 2> "${parser_error_file}" && [ ! -s "${parser_error_file}" ] ||
+	eval "${parse_vars}" 2> "${parser_err_file}" && [ ! -s "${parser_err_file}" ] ||
 	{
-		[ -s "${parser_error_file}" ] && err_print=" Errors: ${_NL_}$(cat "${parser_error_file}")"
+		[ -s "${parser_err_file}" ] && err_print=" Errors: ${_NL_}$(cat "${parser_err_file}")"
 		reg_failure "Failed to parse config.${err_print}"
 		return 3
 	}
@@ -1081,7 +1141,7 @@ parse_config()
 		log_msg -yellow "" "${i%%|*} keys in config: '${keys}'."
 		entries="$(cat "${ABL_CONF_STAGING_DIR}/${entry_type}_entries")"
 		print_msg "Corresponding config entries:" "${entries%$'\n'}"
-		add_conf_fix "Remove ${entry_type_print_lc} entries from the config"
+		add_conf_fix "${i##*|}"
 		export "luci_${entry_type}_keys"="${keys}" "luci_${entry_type}_entries"="${entries%$'\n'}"
 	done
 
@@ -1140,9 +1200,8 @@ load_config()
 	local key val line force_fix='' l_replace_keys='' l_migrated_keys='' l_conf_fixes=''
 	[ "${1}" = '-f' ] || [ -n "${APPROVE_UPD_CHANGES}" ] && force_fix=1
 
-	# Need to set DO_DIALOGS here for compatibility when updating from earlier versions
-	local DO_DIALOGS=
-	[ -z "${ABL_LUCI_SOURCED}" ] && [ -z "${APPROVE_UPD_CHANGES}" ] && [ "${MSGS_DEST}" = "/dev/tty" ] && DO_DIALOGS=1
+	[ -z "${DO_DIALOGS}" ] && [ -z "${ABL_LUCI_SOURCED}" ] && [ -z "${APPROVE_UPD_CHANGES}" ] && [ "${MSGS_DEST}" = "/dev/tty" ] &&
+		DO_DIALOGS=1
 
 	if [ ! -f "${ABL_CONFIG_FILE}" ]
 	then
@@ -1163,12 +1222,12 @@ load_config()
 	esac
 
 	# if not in interactive console and force-fix not set, return error
-	[ -z "${DO_DIALOGS}" ] && [ -z "${force_fix}" ] && { log_msg "${tip_msg}"; return 1; }
+	[ "${DO_DIALOGS}" != 1 ] && [ -z "${force_fix}" ] && { log_msg "${tip_msg}"; return 1; }
 
 	# sanity check
 	[ -z "${l_conf_fixes}" ] && { reg_failure "Failed to parse config."; return 1; }
 
-	if [ -n "${DO_DIALOGS}" ] && [ -z "${force_fix}" ]
+	if [ "${DO_DIALOGS}" = 1 ] && [ -z "${force_fix}" ]
 	then
 		if [ -n "${l_conf_fixes}" ]
 		then
@@ -1199,17 +1258,9 @@ load_config()
 # 2 - keys to migrate
 fix_config()
 {
-	local replace_keys="${1}" migrated_keys="${2}" fixed_config
-
-	case "${replace_keys}" in
-		*DNSMASQ_INDEXES*|*DNSMASQ_CONF_DIRS*)
-			select_dnsmasq_instances -n || return 1
-			# shellcheck disable=SC2034
-			MIGRATE_DNSMASQ_INDEXES="${DNSMASQ_INDEXES}" MIGRATE_DNSMASQ_CONF_DIRS="${DNSMASQ_CONF_DIRS}" ;;
-	esac
-
-	# recreate config from default while replacing values with values from the existing config
-	fixed_config="$(
+	rebuild_config()
+	{
+		local def_line key curr_val replace_keys="${1}" migrated_keys="${2}"
 		print_def_config -n "${DNSMASQ_INDEXES}" -c "${DNSMASQ_CONF_DIRS}" |
 		while IFS="${_NL_}" read -r def_line
 		do
@@ -1217,26 +1268,38 @@ fix_config()
 				\#*|'') printf '%s\n' "${def_line}"; continue ;;
 				*=*)
 					key=${def_line%%=*}
-					curr_val=
 					if is_included "${key}" "${replace_keys}" " "
 					then
 						printf '%s\n' "${def_line}"
 						continue
-					elif is_included "${key}" "${migrated_keys}" " "
+					fi
+
+					if is_included "${key}" "${migrated_keys}" " "
 					then
 						eval "[ -n \"\${MIGRATE_${key}+set}\" ]" ||
-							{ reg_failure "fix_config: '\$MIGRATE_${key}' not set."; exit 1; }
+							{ reg_failure "fix_config: '\$MIGRATE_${key}' not set."; return 1; }
 						eval "curr_val=\"\${MIGRATE_${key}}\""
-						printf '%s\n' "${key}=\"${curr_val}\""
-						continue
+					else
+						eval "curr_val=\"\${${key}}\""
 					fi
-					eval "curr_val=\"\${${key}}\""
 					printf '%s\n' "${key}=\"${curr_val}\""
 					continue
 			esac
 		done
 		:
-	)" || return 1
+	}
+
+	local replace_keys="${1}" migrated_keys="${2}" fixed_config
+
+	if is_included DNSMASQ_INDEXES "${replace_keys}" " " || is_included DNSMASQ_CONF_DIRS "${replace_keys}" " "
+	then
+		select_dnsmasq_instances -n || return 1
+		# shellcheck disable=SC2034
+		MIGRATE_DNSMASQ_INDEXES="${DNSMASQ_INDEXES}" MIGRATE_DNSMASQ_CONF_DIRS="${DNSMASQ_CONF_DIRS}"
+	fi
+
+	# recreate config from default while replacing values with values from the existing config
+	fixed_config="$(rebuild_config "${replace_keys}" "${migrated_keys}")" || return 1
 
 	local old_config_f="/tmp/adblock-lean_config.old"
 	if ! cp "${ABL_CONFIG_FILE}" "${old_config_f}"
@@ -1244,13 +1307,13 @@ fix_config()
 		reg_failure "Failed to save old config file as ${old_config_f}."
 		if [ -z "${APPROVE_UPD_CHANGES}" ]
 		then
-			[ -z "${DO_DIALOGS}" ] && return 1
-			log_msg "Proceed with suggested config changes? (y|n)"
+			[ "${DO_DIALOGS}" = 1 ] || return 1
+			print_msg "Proceed with suggested config changes? (y|n)"
 			pick_opt "y|n" || return 1
 			[ "${REPLY}" = n ] && return 1
 		fi
 	else
-		log_msg "" "Old config file was saved as ${old_config_f}."
+		reg_msg "" "Old config file was saved as ${old_config_f}."
 	fi
 
 	write_config "${fixed_config}" || return 1
@@ -1266,7 +1329,7 @@ write_config()
 
 	[ -z "${1}" ] && { reg_failure "write_config(): no config passed."; return 1; }
 
-	if [ -n "${DO_DIALOGS}" ] && [ -z "${APPROVE_UPD_CHANGES}" ] && [ -f "${ABL_CONFIG_FILE}" ]
+	if [ "${DO_DIALOGS}" = 1 ] && [ -z "${APPROVE_UPD_CHANGES}" ] && [ -f "${ABL_CONFIG_FILE}" ]
 	then
 		print_msg "This will overwrite existing config. Proceed? (y|n)"
 		pick_opt "y|n" && [ "${REPLY}" != n ] || return 1
@@ -1277,7 +1340,7 @@ write_config()
 	parse_config "${tmp_config}" ||
 		{ rm -f "${tmp_config}"; reg_failure "Failed to validate the new config."; return 1; }
 
-	log_msg "" "Saving new config file to '${ABL_CONFIG_FILE}'."
+	reg_msg "" "Saving new config file to '${ABL_CONFIG_FILE}'."
 	try_mkdir -p "${ABL_CONFIG_DIR}" ||
 		{
 			rm -f "${tmp_config}"
@@ -1348,24 +1411,24 @@ report_utils()
 	done
 
 	case "${AWK_CMD}" in
-		*gawk*) log_msg -green "gawk detected so using gawk for fast (sub)domain match removal and entries packing." ;;
+		*gawk*) reg_msg -green "gawk detected so using gawk for fast (sub)domain match removal and entries packing." ;;
 		*)
-			log_msg -yellow "gawk not detected so allowlist (sub)domains removal from blocklist will be slow and list processing will not be as efficient."
-			log_msg "Consider installing the gawk package${awk_inst_tip} for faster processing and (sub)domain match removal."
+			reg_msg -yellow "gawk not detected so allowlist (sub)domains removal from blocklist will be slow and list processing will not be as efficient."
+			reg_msg "Consider installing the gawk package${awk_inst_tip} for faster processing and (sub)domain match removal."
 	esac
 
 	case "${SED_CMD}" in
-		*gnu*) log_msg -green "GNU sed detected so list processing will be fast." ;;
+		*gnu*) reg_msg -green "GNU sed detected so list processing will be fast." ;;
 		*)
-			log_msg -yellow "GNU sed not detected so list processing will be a little slower."
-			log_msg "Consider installing the GNU sed package${sed_inst_tip} for faster processing." ;;
+			reg_msg -yellow "GNU sed not detected so list processing will be a little slower."
+			reg_msg "Consider installing the GNU sed package${sed_inst_tip} for faster processing." ;;
 	esac
 
 	case "${SORT_CMD}" in
-		*coreutils*) log_msg -green "coreutils-sort detected so sort will be fast." ;;
+		*coreutils*) reg_msg -green "coreutils-sort detected so sort will be fast." ;;
 		*)
-			log_msg -yellow "coreutils-sort not detected so sort will be a little slower."
-			log_msg "Consider installing the coreutils-sort package${sort_inst_tip} for faster sort." ;;
+			reg_msg -yellow "coreutils-sort not detected so sort will be a little slower."
+			reg_msg "Consider installing the coreutils-sort package${sort_inst_tip} for faster sort." ;;
 	esac
 }
 
@@ -1484,8 +1547,8 @@ check_for_updates()
 		'') no_upd="update channel is unknown" ;;
 		*) no_upd="update channel is '${upd_channel}'" ;;
 	esac
-	[ -n "${no_upd}" ] && { log_msg "" "adblock-lean ${no_upd}. Automatic updates check is disabled."; return 3; }
-	reg_action -blue "Checking for adblock-lean updates."
+	[ -n "${no_upd}" ] && { print_msg "" "adblock-lean ${no_upd}. Automatic updates check is disabled."; return 3; }
+	reg_action -nolog -blue "Checking for adblock-lean updates."
 	rm -rf "${ABL_UPD_DIR}"
 	try_mkdir -p "${ABL_UPD_DIR}" &&
 	get_gh_ref "${upd_channel}" "" upd_ver tarball_url _
@@ -1502,15 +1565,15 @@ check_for_updates()
 
 	if [ "${upd_ver}" = "${curr_ver}" ]
 	then
-		log_msg "The locally installed adblock-lean is the latest version."
+		reg_msg "The locally installed adblock-lean is the latest version."
 		return 0
 	else
-		local upd_details="(update channel: ${upd_channel}, installed: '${curr_ver}', latest: '${upd_ver}'.)"
+		local upd_details="(update channel: ${upd_channel}, installed: '${curr_ver}', latest: '${upd_ver}')"
 		UPD_DIRECTIONS="Consider running: 'service adblock-lean update' to update it to the latest version."
 		UPD_AVAIL_MSG="adblock-lean update is available ${upd_details}"
 		: "${UPD_AVAIL_MSG}" # silence shellcheck warning
-		log_msg -yellow "The locally installed adblock-lean seems to be outdated ${upd_details}."
-		log_msg "${UPD_DIRECTIONS}"
+		reg_msg -yellow "The locally installed adblock-lean seems to be outdated ${upd_details}."
+		print_msg "${UPD_DIRECTIONS}"
 		return 1
 	fi
 }
@@ -1579,7 +1642,7 @@ do_select_dnsmasq_instances() {
 
 	if [ "${DNSMASQ_INSTANCES_CNT}" = 1 ]
 	then
-		log_msg -blue "Detected only 1 dnsmasq instance - skipping manual instance selection."
+		reg_msg -blue "Detected only 1 dnsmasq instance - skipping manual instance selection."
 		DNSMASQ_INDEXES="${DNSMASQ_RUNNING_INDEXES%% *}"
 	else
 		# check if all instances share same conf-dirs
@@ -1602,20 +1665,20 @@ do_select_dnsmasq_instances() {
 		# if conf-dirs are shared, attach to first instance
 		if [ -z "${diff}" ]
 		then
-			log_msg -blue "Detected multiple dnsmasq instances which are using the same conf-dir. Skipping manual instance selection."
+			reg_msg -blue "Detected multiple dnsmasq instances which are using the same conf-dir. Skipping manual instance selection."
 			DNSMASQ_INDEXES="${DNSMASQ_RUNNING_INDEXES%% *}"
 		else
 			# if conf-dirs are not shared, ask the user
-			log_msg -blue "Multiple dnsmasq instances detected."
+			reg_msg -blue "Multiple dnsmasq instances detected."
 			REPLY=a
-			if [ -n "${DO_DIALOGS}" ]
+			if [ "${DO_DIALOGS}" = 1 ]
 			then
-				log_msg "" "Existing dnsmasq instances and assigned network interfaces:"
+				reg_msg "" "Existing dnsmasq instances and assigned network interfaces:"
 				for index in ${DNSMASQ_RUNNING_INDEXES}
 				do
 					eval "instance=\"\${INST_NAME_${index}}\"" \
 						"ifaces=\"\${IFACES_${index}}\""
-					log_msg "${index}. Instance '${instance}': interfaces '${ifaces}'"
+					reg_msg "${index}. Instance '${instance}': interfaces '${ifaces}'"
 					indexes="${indexes}${index}|"
 				done
 				print_msg "" "Please select which dnsmasq instance should have active adblocking, or 'a' to abort." \
@@ -1638,7 +1701,7 @@ do_select_dnsmasq_instances() {
 				return 1
 			fi
 
-			[ "${REPLY}" = a ] && { log_msg "Aborted config generation."; exit 0; }
+			[ "${REPLY}" = a ] && { reg_msg "Aborted config generation."; exit 0; }
 			DNSMASQ_INDEXES="${REPLY}"
 		fi
 	fi
@@ -1706,7 +1769,7 @@ clean_dnsmasq_dir()
 # ALL_CONF_DIRS, DNSMASQ_RUNNING_INDEXES, DNSMASQ_INSTANCES_CNT
 # INST_NAME_${index}, IFACES_${index}, CONF_DIRS_${index}, CONF_DIRS_CNT_${index}, RUNNING_${index},
 get_dnsmasq_instances() {
-	# shellcheck disable=SC2317
+	# shellcheck disable=SC2317,SC2329
 	add_conf_dir()
 	{
 		local confdir
@@ -1717,7 +1780,7 @@ get_dnsmasq_instances() {
 	local nonempty='' instance instances running_instances index l1_conf_file l1_conf_files conf_dirs i s f dir 
 	unset DNSMASQ_RUNNING_INDEXES ALL_CONF_DIRS
 	DNSMASQ_INSTANCES_CNT=0
-	reg_action -blue "Checking dnsmasq instances."
+	reg_action -nolog -blue "Checking dnsmasq instances."
 
 	# gather conf dirs from /etc/config/dhcp
 	if [ -z "${DHCP_LOADED}" ]
@@ -1785,7 +1848,7 @@ get_dnsmasq_instances() {
 		IFS="${DEFAULT_IFS}"
 
 		# get ifaces for instance
-		ifaces="$(${AWK_CMD} -F= '/^\s*interface=/ {if (!seen[$2]++) {ifaces = ifaces $2 ", "} } END {print ifaces}' "$@")"
+		ifaces="$(${AWK_CMD} -F= '/^\s*interface=/ {if (!seen[$2]++) {ifaces = ifaces $2 ", "} } END {print ifaces}' "${@}")"
 
 		# get conf-dirs for instance
 		conf_dirs="$(
@@ -1815,40 +1878,51 @@ get_dnsmasq_instances() {
 }
 
 # Checks that configured dnsmasq instances are running and verifies that their indexes and conf-dirs match the config
+# 1 - (optional) '-q' to quiet
 # return codes:
-# 0 - dnsmasq running
+# 0 - configured dnsmasq instances running
 # 1 - dnsmasq instance is not running or other error
 check_dnsmasq_instances()
 {
-	local instance index dir instance_conf_dirs conf_dir_reg all_abl_conf_dirs='' \
-		inst_ind="dnsmasq instance with index" please_run="Please run 'service adblock-lean select_dnsmasq_instances'."
+	check_failed()
+	{
+		[ -n "${quiet}" ] && return 0
+		reg_failure "${@}"
+	}
+
+	local quiet='' instance index dir instance_conf_dirs conf_dir_reg all_abl_conf_dirs='' \
+		inst_ind="dnsmasq instance with index" \
+		please_run="Please run 'service adblock-lean select_dnsmasq_instances'."
+
+	[ "${1}" = '-q' ] && quiet=1
 
 	get_dnsmasq_instances ||
 	{
 		reg_failure "No running dnsmasq instances found."
 		stop -noexit
-		get_dnsmasq_instances || { reg_failure "dnsmasq service appears to be broken."; return 1; }
+		get_dnsmasq_instances || { check_failed "dnsmasq service appears to be broken."; return 1; }
 	}
 
-	[ -n "${DNSMASQ_INDEXES}" ] || { reg_failure "dnsmasq instances are not set."; return 1; }
+	[ -n "${DNSMASQ_INDEXES}" ] || { check_failed "dnsmasq instances are not set."; return 1; }
 
 	for index in ${DNSMASQ_INDEXES}
 	do
 		eval "[ \"\${RUNNING_${index}}\" = 1 ]" ||
 		{
-			reg_failure "${inst_ind} ${index} is not running."
+			check_failed "${inst_ind} ${index} is not running."
 			stop -noexit
 			get_dnsmasq_instances &&
 			eval "[ \"\${RUNNING_${index}}\" = 1 ]" ||
 			{
-				reg_failure "${inst_ind} ${index} is misconfigured or not running."
+				check_failed "${inst_ind} ${index} is misconfigured or not running."
 				return 1
 			}
 		}
 
 		conf_dir_reg=
 		eval "instance_conf_dirs=\"\${CONF_DIRS_${index}}\""
-		[ -n "${instance_conf_dirs}" ] || { reg_failure "dnsmasq config directory is not set for instance with index ${index}."; return 1; }
+		[ -n "${instance_conf_dirs}" ] ||
+			{ check_failed "dnsmasq config directory is not set for instance with index ${index}."; return 1; }
 		all_abl_conf_dirs="${all_abl_conf_dirs}${instance_conf_dirs}${_NL_}"
 
 		local IFS="${_NL_}"
@@ -1858,7 +1932,7 @@ check_dnsmasq_instances()
 			is_included "${dir}" "${DNSMASQ_CONF_DIRS}" " " && conf_dir_reg=1
 			[ -d "${dir}" ] ||
 			{
-				reg_failure "Conf-dir '${dir}' does not exist. ${inst_ind} ${index} is misconfigured. ${please_run}"
+				check_failed "Conf-dir '${dir}' does not exist. ${inst_ind} ${index} is misconfigured. ${please_run}"
 				return 1
 			}
 		done
@@ -1866,14 +1940,14 @@ check_dnsmasq_instances()
 
 		[ -n "${conf_dir_reg}" ] ||
 		{
-			reg_failure "Conf-dirs for ${inst_ind} ${index} changed. ${please_run}"
+			check_failed "Conf-dirs for ${inst_ind} ${index} changed. ${please_run}"
 			return 1
 		}
 
 		# check if config section exists in /etc/config/dhcp
 		uci show "dhcp.@dnsmasq[${index}]" &>/dev/null ||
 		{
-			reg_failure "${inst_ind} ${index} is running but not registered in /etc/config/dhcp. Use the command 'service dnsmasq restart' and then re-try."
+			check_failed "${inst_ind} ${index} is running but not registered in /etc/config/dhcp. Use the command 'service dnsmasq restart' and then re-try."
 			return 1
 		}
 	done
@@ -1881,9 +1955,10 @@ check_dnsmasq_instances()
 	for dir in ${DNSMASQ_CONF_DIRS}
 	do
 		is_included "${dir}" "${all_abl_conf_dirs}" "${_NL_}" ||
-			{ reg_failure "conf-dir directory '${dir}' is set in config but not used by dnsmasq instances '${DNSMASQ_INDEXES}'."; return 1; }
+			{ check_failed "conf-dir directory '${dir}' is set in config but not used by dnsmasq instances '${DNSMASQ_INDEXES}'."; return 1; }
 	done
 
 	:
 }
 
+:
