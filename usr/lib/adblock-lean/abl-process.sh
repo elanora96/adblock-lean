@@ -819,7 +819,9 @@ gen_list_parts()
 			for list_format in ${ALL_LIST_FORMATS}
 			do
 				eval "lists=\"\${${list_format}_${list_type}_lists}\""
-				[ -n "${lists}" ] || continue
+				local_list_path=
+				[ "${list_format}" = raw ] && eval "local_list_path=\"\${local_${list_type}list_path}\""
+				[ -n "${lists}" ] || [ -f "${local_list_path}" ] || continue
 
 				invalid_urls="$(printf %s "${lists}" | tr ' ' '\n' | grep -E '^(http[s]*://)*(www\.)*github\.com')" &&
 				{
@@ -857,7 +859,6 @@ gen_list_parts()
 						${list_format}_${list_type}_${index}_print_id=\"${list}\""
 				done
 
-				eval "local_list_path=\"\${local_${list_type}list_path}\""
 				if [ "${list_format}" = raw ] && [ -n "${local_list_path}" ]
 				then
 					if [ ! -f "${local_list_path}" ]
