@@ -151,7 +151,7 @@ Make sure to run `service adblock-lean start` after manually modifying the confi
 ## Local Blocklist and Allowlist
 adblock-lean supports the use of a local blocklist or allowlist to supplement and/or override the downloaded blocklists and allowlists. 
 
-Simply add domains (e.g. example.com) seperated by newlines in `/etc/adblock-lean/blocklist` or `/etc/adblock-lean/allowlist` (these paths are configurable in the config). 
+Simply add domains (e.g. example.com) separated by newlines in `/etc/adblock-lean/blocklist` or `/etc/adblock-lean/allowlist` (these paths are configurable in the config).
 
 The following features are supported:
 
@@ -182,7 +182,7 @@ cron_schedule="disable"
 
 ## Supported formats
 
-adblock-lean supports three blocklist/allowlist formats: **raw format** (a.k.a. _domains-only_ format), **dnsmasq format** and **hosts format**. Raw-format lists have the benefit of smaller file size dowload, improved processing speed and reduced ram usage. Hence built-in presets include lists in the raw format.
+adblock-lean supports three blocklist/allowlist formats: **raw format** (a.k.a. _domains-only_ format), **dnsmasq format** and **hosts format**. Raw-format lists have the benefit of smaller file size download, improved processing speed and reduced ram usage. Hence built-in presets include lists in the raw format.
 
 Note about the **hosts-format** lists: adblock-lean does not feed the list as-is to dnsmasq. Instead, adblock-lean converts the source list into raw-domains format. The converted list is then merged with any other lists you may have specified. This reduces the memory footprint and allows to deduplicate the blocked domains across different source formats. The downside is that adblock-lean is only compatible with hosts-format lists which couple domains to block with the `0.0.0.0` IPv4 address (or with `::` for IPv6). A minority of hosts-format lists which couple domains to block with the `127.0.0.1` IPv4 address (or with `::1` for IPv6) are **incompatible** with adblock-lean.
 
@@ -239,7 +239,7 @@ adblock-lean supports specifying lists either by the complete **download URL** o
 |`min_blocklist_ipv4_part_line_count`| Minimum number of lines of individual downloaded ipv4 blocklist part                      |
 |`min_allowlist_part_line_count`     | Minimum number of lines of individual downloaded allowlist part                           |
 |`max_file_part_size_KB`             | Maximum size in KB of any individual downloaded blocklist part                            |
-|`max_blocklist_file_size_KB`        | Maximim size in KB of combined, processed blocklist                                       |
+|`max_blocklist_file_size_KB`        | Maximum size in KB of combined, processed blocklist                                       |
 |`deduplication`                     | Whether to perform sorting and deduplication of entries                                   |
 |`compression_util`                  | Utility used to compress while processing, and final blocklists. Reduces memory usage. `none` disables compression |
 |`intermediate_compression_options`  | Options passed to the compression utility while processing. `-[n]` universally specifies compression level.   |

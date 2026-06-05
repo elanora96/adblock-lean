@@ -948,7 +948,7 @@ gen_and_process_blocklist()
 	}
 
 	# convert to dnsmasq format and pack 4 input lines into 1 output line
-	# intput from STDIN, output to STDOUT
+	# input from STDIN, output to STDOUT
 	# 1 - block|allow
 	pack_entries_sed()
 	{
@@ -964,7 +964,7 @@ gen_and_process_blocklist()
 	}
 
 	# convert to dnsmasq format and pack input lines into 1024 characters-long lines
-	# intput from STDIN, output to STDOUT
+	# input from STDIN, output to STDOUT
 	# 1 - block|allow
 	pack_entries_awk()
 	{

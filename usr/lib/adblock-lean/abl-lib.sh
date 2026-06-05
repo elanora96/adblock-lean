@@ -629,7 +629,7 @@ print_def_config()
 	local_allowlist_path="${ABL_CONFIG_DIR}/allowlist" @ string
 	local_blocklist_path="${ABL_CONFIG_DIR}/blocklist" @ string
 
-	# Test domains are automatically querried after loading the blocklist into dnsmasq,
+	# Test domains are automatically queried after loading the blocklist into dnsmasq,
 	# in order to verify that the blocklist didn't break DNS resolution
 	# If query for any of the test domains fails, previous blocklist is restored from backup
 	# If backup doesn't exist, the blocklist is removed and adblock-lean is stopped
@@ -656,7 +656,7 @@ print_def_config()
 	# Minimum number of good lines in final postprocessed blocklist
 	min_good_line_count="${min_good_line_count}" @ integer
 
-	# Mininum number of lines of any individual downloaded part
+	# Minimum number of lines of any individual downloaded part
 	min_blocklist_part_line_count="1" @ integer
 	min_ipv4_blocklist_part_line_count="1" @ integer
 	min_allowlist_part_line_count="1" @ integer
